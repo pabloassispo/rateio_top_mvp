@@ -23,8 +23,8 @@ class PagarmeService {
   private accountId: string;
 
   constructor() {
-    this.apiKey = process.env.PAGARME_API_KEY || "";
-    this.accountId = process.env.PAGARME_ACCOUNT_ID || "";
+    this.apiKey = process.env.sk_test_7446b32a18614e3e87f62019f745e85b || "";
+    this.accountId = process.env.acc_wpnVbycJehD1NrdJ || "";
 
     if (!this.apiKey || !this.accountId) {
       console.warn("[Pagar.me] Missing API credentials. Set PAGARME_API_KEY and PAGARME_ACCOUNT_ID");

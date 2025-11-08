@@ -9,7 +9,9 @@ type UseAuthOptions = {
 };
 
 export function useAuth(options?: UseAuthOptions) {
-  const { redirectOnUnauthenticated = false, redirectPath = getLoginUrl() } =
+  const isDevMode = import.meta.env.VITE_DEV_MODE === "true";
+  const loginUrl = isDevMode ? "#dev-mode" : getLoginUrl();
+  const { redirectOnUnauthenticated = false, redirectPath = loginUrl } =
     options ?? {};
   const utils = trpc.useUtils();
 

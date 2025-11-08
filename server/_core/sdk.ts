@@ -257,6 +257,29 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
+    // Development mode: create/return a dummy user
+    if (ENV.isDevMode) {
+      const devUserId = "dev-user-001";
+      let user = await db.getUserByOpenId(devUserId);
+      
+      if (!user) {
+        await db.upsertUser({
+          openId: devUserId,
+          name: "Development User",
+          email: "dev@localhost",
+          loginMethod: "development",
+          lastSignedIn: new Date(),
+        });
+        user = await db.getUserByOpenId(devUserId);
+      }
+      
+      if (!user) {
+        throw new Error("Failed to create development user");
+      }
+      
+      return user;
+    }
+
     // Regular authentication flow
     const cookies = this.parseCookies(req.headers.cookie);
     const sessionCookie = cookies.get(COOKIE_NAME);

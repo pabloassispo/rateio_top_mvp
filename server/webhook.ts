@@ -1,8 +1,13 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import * as db from "./db";
+import { pagarmeService } from "./pagarme";
 
 const webhookRouter = Router();
+
+interface RawBodyRequest extends Request {
+  rawBody?: string;
+}
 
 /**
  * Webhook endpoint for Pagar.me payment notifications
@@ -22,15 +27,19 @@ const webhookRouter = Router();
  */
 webhookRouter.post("/pagarme", async (req: Request, res: Response) => {
   try {
+    const rawBody = (req as RawBodyRequest).rawBody ?? JSON.stringify(req.body ?? {});
+    const signature =
+      req.header("x-hub-signature") ??
+      req.header("x-hub-signature-256") ??
+      req.header("x-hub-signature-sha256");
+
+    if (!pagarmeService.validateWebhookSignature(rawBody, signature)) {
+      return res.status(401).json({ error: "Invalid webhook signature" });
+    }
+
     const { type, data } = req.body;
 
     console.log(`[Webhook] Received event: ${type}`, data);
-
-    // Validate webhook signature (TODO: implement proper validation)
-    // const signature = req.headers["x-hub-signature"];
-    // if (!validateSignature(req.body, signature)) {
-    //   return res.status(401).json({ error: "Invalid signature" });
-    // }
 
     if (!type || !data) {
       return res.status(400).json({ error: "Missing type or data" });

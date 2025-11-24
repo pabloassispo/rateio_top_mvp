@@ -96,6 +96,7 @@ OWNER_OPEN_ID=your-open-id
 # Pagar.me API (for Pix payments)
 PAGARME_API_KEY=your-pagarme-api-key
 PAGARME_ACCOUNT_ID=your-pagarme-account-id
+PAGARME_WEBHOOK_URL=https://your-public-url/api/webhook/pagarme
 
 # Development Mode (set to "true" to bypass auth)
 VITE_DEV_MODE=false

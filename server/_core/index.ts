@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import webhookRouter from "../webhook";
+import { ENV } from "./env";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -32,7 +33,15 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
   // Configure body parser with larger size limit for file uploads
-  app.use(express.json({ limit: "50mb" }));
+  app.use(
+    express.json({
+      limit: "50mb",
+      verify: (req: any, _res, buf) => {
+        // Persist raw body for webhook signature validation
+        req.rawBody = buf.toString("utf8");
+      },
+    })
+  );
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
@@ -66,8 +75,16 @@ async function startServer() {
   }
 
   server.listen(port, () => {
+    const localWebhookUrl = `http://localhost:${port}/api/webhook/pagarme`;
     console.log(`Server running on http://localhost:${port}/`);
-    console.log(`Webhook endpoint: http://localhost:${port}/api/webhook/pagarme`);
+    if (ENV.pagarmeWebhookUrl) {
+      console.log(`Webhook endpoint: ${ENV.pagarmeWebhookUrl}`);
+    } else {
+      console.log(`Webhook endpoint: ${localWebhookUrl}`);
+      console.log(
+        "Set PAGARME_WEBHOOK_URL in your .env to point to your public (e.g. ngrok) callback."
+      );
+    }
   });
 }
 

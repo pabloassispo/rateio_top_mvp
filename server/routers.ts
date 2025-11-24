@@ -251,9 +251,20 @@ const paymentRouter = router({
 
       try {
         // Create Pix charge via Pagar.me
+        // Pagar.me requires customer data - use participant's PIX key to derive email if possible
+        let customerEmail = "participante@rateio.top";
+        if (participant.pixKeyType === "EMAIL") {
+          customerEmail = participant.pixKey;
+        }
+        
         const charge = await pagarmeService.createPixCharge(
           rateio.totalAmount,
-          `Rateio: ${rateio.name}`
+          `Rateio: ${rateio.name}`,
+          {
+            name: "Participante Rateio",
+            email: customerEmail,
+            type: "individual",
+          }
         );
 
         const paymentIntentId = uuidv4();

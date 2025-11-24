@@ -257,7 +257,52 @@ class SDKServer {
   }
 
   async authenticateRequest(req: Request): Promise<User> {
-    // Development mode: create/return a dummy user
+    // First, try to authenticate with session cookie (for real logged-in users)
+    const cookies = this.parseCookies(req.headers.cookie);
+    const sessionCookie = cookies.get(COOKIE_NAME);
+    
+    if (sessionCookie) {
+      try {
+        const session = await this.verifySession(sessionCookie);
+        
+        if (session) {
+          const sessionUserId = session.openId;
+          const signedInAt = new Date();
+          let user = await db.getUserByOpenId(sessionUserId);
+
+          // If user not in DB, try to sync from OAuth server (for OAuth users)
+          if (!user) {
+            try {
+              const userInfo = await this.getUserInfoWithJwt(sessionCookie);
+              await db.upsertUser({
+                openId: userInfo.openId,
+                name: userInfo.name || null,
+                email: userInfo.email ?? null,
+                loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
+                lastSignedIn: signedInAt,
+              });
+              user = await db.getUserByOpenId(userInfo.openId);
+            } catch (error) {
+              console.error("[Auth] Failed to sync user from OAuth:", error);
+              // If OAuth sync fails, continue to check if it's a regular user
+            }
+          }
+
+          if (user) {
+            await db.upsertUser({
+              openId: user.openId,
+              lastSignedIn: signedInAt,
+            });
+            return user;
+          }
+        }
+      } catch (error) {
+        // Session verification failed, continue to dev mode fallback if enabled
+        console.warn("[Auth] Session verification failed, falling back to dev mode if enabled");
+      }
+    }
+
+    // Development mode: create/return a dummy user only if no valid session exists
     if (ENV.isDevMode) {
       const devUserId = "dev-user-001";
       let user = await db.getUserByOpenId(devUserId);
@@ -280,47 +325,8 @@ class SDKServer {
       return user;
     }
 
-    // Regular authentication flow
-    const cookies = this.parseCookies(req.headers.cookie);
-    const sessionCookie = cookies.get(COOKIE_NAME);
-    const session = await this.verifySession(sessionCookie);
-
-    if (!session) {
-      throw ForbiddenError("Invalid session cookie");
-    }
-
-    const sessionUserId = session.openId;
-    const signedInAt = new Date();
-    let user = await db.getUserByOpenId(sessionUserId);
-
-    // If user not in DB, sync from OAuth server automatically
-    if (!user) {
-      try {
-        const userInfo = await this.getUserInfoWithJwt(sessionCookie ?? "");
-        await db.upsertUser({
-          openId: userInfo.openId,
-          name: userInfo.name || null,
-          email: userInfo.email ?? null,
-          loginMethod: userInfo.loginMethod ?? userInfo.platform ?? null,
-          lastSignedIn: signedInAt,
-        });
-        user = await db.getUserByOpenId(userInfo.openId);
-      } catch (error) {
-        console.error("[Auth] Failed to sync user from OAuth:", error);
-        throw ForbiddenError("Failed to sync user info");
-      }
-    }
-
-    if (!user) {
-      throw ForbiddenError("User not found");
-    }
-
-    await db.upsertUser({
-      openId: user.openId,
-      lastSignedIn: signedInAt,
-    });
-
-    return user;
+    // No valid session and not in dev mode
+    throw ForbiddenError("Invalid session cookie");
   }
 }
 

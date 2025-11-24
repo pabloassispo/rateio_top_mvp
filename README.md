@@ -77,40 +77,60 @@ POST /api/webhook/pagarme
 ### Pré-requisitos
 
 - Node.js 22+
-- pnpm
-- Conta Pagar.me (sandbox)
-- Manus OAuth (já configurado)
+- pnpm (ou npm)
+- MySQL (local ou remoto)
+- Conta Pagar.me (sandbox) - opcional para testes
 
-### Instalação
+### Instalação Rápida
 
 ```bash
-cd rateio_top_mvp
+# 1. Instalar dependências
 pnpm install
+
+# 2. Instalar bcrypt (necessário para autenticação)
+pnpm add bcrypt
+pnpm add -D @types/bcrypt
+
+# 3. Configurar variáveis de ambiente
+# Crie um arquivo .env na raiz do projeto (veja SETUP.md para detalhes)
+
+# 4. Executar migrações do banco de dados
 pnpm db:push
+
+# 5. Iniciar servidor de desenvolvimento
+pnpm dev
+# Acesse http://localhost:3000
 ```
 
 ### Variáveis de Ambiente
 
-As seguintes variáveis já estão injetadas pelo Manus:
+Crie um arquivo `.env` na raiz do projeto:
 
-```
-DATABASE_URL=mysql://...
-JWT_SECRET=...
+```env
+# Banco de Dados (obrigatório)
+DATABASE_URL=mysql://usuario:senha@localhost:3306/nome_do_banco
+
+# JWT Secret (obrigatório - gere uma string aleatória)
+JWT_SECRET=sua-chave-secreta-aqui
+
+# OAuth (opcional - se não usar, pode usar email/senha)
 VITE_APP_ID=...
 OAUTH_SERVER_URL=...
 VITE_OAUTH_PORTAL_URL=...
+
+# Owner (opcional)
 OWNER_OPEN_ID=...
-OWNER_NAME=...
+
+# Pagar.me (opcional - para pagamentos Pix)
 PAGARME_API_KEY=...
 PAGARME_ACCOUNT_ID=...
+
+# Modo Desenvolvimento (opcional)
+VITE_DEV_MODE=false
+NODE_ENV=development
 ```
 
-### Desenvolvimento
-
-```bash
-pnpm dev
-# Acesse http://localhost:3000
-```
+**📖 Para instruções detalhadas de setup, veja [SETUP.md](./SETUP.md)**
 
 ---
 

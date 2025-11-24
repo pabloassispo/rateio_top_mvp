@@ -1,4 +1,4 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router, protectedProcedure } from "./_core/trpc";
@@ -7,6 +7,8 @@ import { v4 as uuidv4 } from "uuid";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
 import { pagarmeService } from "./pagarme";
+import { hashPassword, verifyPassword } from "./_core/password";
+import { sdk } from "./_core/sdk";
 
 // ============= VALIDATORS =============
 
@@ -214,7 +216,16 @@ const participantRouter = router({
   getByRateio: publicProcedure
     .input(z.object({ rateioId: z.string().uuid() }))
     .query(async ({ input }) => {
-      return await db.getParticipantsByRateio(input.rateioId);
+      const participants = await db.getParticipantsByRateio(input.rateioId);
+      // Return participants with user info
+      return participants.map(p => ({
+        ...p,
+        user: p.user ? {
+          id: p.user.id,
+          name: p.user.name,
+          email: p.user.email,
+        } : null,
+      }));
     }),
 });
 
@@ -358,6 +369,119 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+    register: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email("Email inválido"),
+          password: z.string().min(6, "Senha deve ter pelo menos 6 caracteres"),
+          name: z.string().min(2, "Nome deve ter pelo menos 2 caracteres"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        // Check if user already exists
+        const existingUser = await db.getUserByEmail(input.email);
+        if (existingUser) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Email já está em uso",
+          });
+        }
+
+        // Generate openId (using email as base for uniqueness)
+        const openId = `email:${input.email}`;
+        
+        // Check if openId already exists (shouldn't happen, but safety check)
+        const existingByOpenId = await db.getUserByOpenId(openId);
+        if (existingByOpenId) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Usuário já existe",
+          });
+        }
+
+        // Hash password
+        const hashedPassword = await hashPassword(input.password);
+
+        // Create user
+        await db.upsertUser({
+          openId,
+          email: input.email,
+          name: input.name,
+          password: hashedPassword,
+          loginMethod: "email",
+          lastSignedIn: new Date(),
+        });
+
+        // Create session token
+        const sessionToken = await sdk.createSessionToken(openId, {
+          name: input.name,
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        // Set cookie
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true };
+      }),
+    login: publicProcedure
+      .input(
+        z.object({
+          email: z.string().email("Email inválido"),
+          password: z.string().min(1, "Senha é obrigatória"),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        // Find user by email
+        const user = await db.getUserByEmail(input.email);
+        if (!user) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Email ou senha incorretos",
+          });
+        }
+
+        // Check if user has password (email/password auth)
+        if (!user.password) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Conta não possui senha cadastrada",
+          });
+        }
+
+        // Verify password
+        const isValidPassword = await verifyPassword(input.password, user.password);
+        if (!isValidPassword) {
+          throw new TRPCError({
+            code: "UNAUTHORIZED",
+            message: "Email ou senha incorretos",
+          });
+        }
+
+        // Update last signed in
+        await db.upsertUser({
+          openId: user.openId,
+          lastSignedIn: new Date(),
+        });
+
+        // Create session token
+        const sessionToken = await sdk.createSessionToken(user.openId, {
+          name: user.name || "",
+          expiresInMs: ONE_YEAR_MS,
+        });
+
+        // Set cookie
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.cookie(COOKIE_NAME, sessionToken, {
+          ...cookieOptions,
+          maxAge: ONE_YEAR_MS,
+        });
+
+        return { success: true };
+      }),
   }),
 
   rateio: rateioRouter,

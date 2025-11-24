@@ -3,7 +3,8 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LogOut, Plus, Share2 } from "lucide-react";
-import { APP_LOGO, APP_TITLE, getLoginUrl } from "@/const";
+import { APP_LOGO, APP_TITLE } from "@/const";
+import { getUserDisplayName } from "@/lib/userUtils";
 
 export default function Home() {
   const [, setLocation] = useLocation();
@@ -29,7 +30,9 @@ export default function Home() {
           <div className="flex items-center gap-4">
             {isAuthenticated ? (
               <>
-                <span className="text-sm text-gray-600">Olá, {user?.name || "Usuário"}</span>
+                <span className="text-sm text-gray-600">
+                  Olá, {getUserDisplayName(user)}
+                </span>
                 <Button
                   variant="outline"
                   size="sm"
@@ -43,7 +46,7 @@ export default function Home() {
             ) : (
               <Button
                 size="sm"
-                onClick={() => (window.location.href = getLoginUrl())}
+                onClick={() => setLocation("/login")}
               >
                 Entrar
               </Button>
@@ -74,7 +77,7 @@ export default function Home() {
           ) : (
             <Button
               size="lg"
-              onClick={() => (window.location.href = getLoginUrl())}
+              onClick={() => setLocation("/login")}
               className="bg-blue-600 hover:bg-blue-700"
             >
               Entrar para Começar

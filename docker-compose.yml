@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    container_name: rateio-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-rateio_top_mvp}
+      MYSQL_USER: ${MYSQL_USER:-rateio_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-rateio_password}
+      # Allow root to connect from any host
+      MYSQL_ROOT_HOST: '%'
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      # Persistent database data
+      - mysql_data:/var/lib/mysql
+      # Optional: Custom MySQL config
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/custom.cnf:ro
+      # Init script to grant privileges
+      - ./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    command: --bind-address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # Database persistent storage
+  mysql_data:
+    driver: local
+    name: rateio_mysql_data
+

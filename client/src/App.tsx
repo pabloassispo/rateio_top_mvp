@@ -4,17 +4,22 @@ import NotFound from "@/pages/NotFound";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { SessionProvider } from "./contexts/SessionContext";
 import Home from "./pages/Home";
+import Login from "./pages/Login";
 import CreateRateio from "./pages/CreateRateio";
 import ParticipateRateio from "./pages/ParticipateRateio";
 import RateioStatus from "./pages/RateioStatus";
+import RateioDetails from "./pages/RateioDetails";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      <Route path={"/login"} component={Login} />
       <Route path={"/create"} component={CreateRateio} />
+      <Route path={"/rateio/:id"} component={RateioDetails} />
       <Route path={"/rateio/:id/participate"} component={ParticipateRateio} />
       <Route path={"/rateio/:id/status"} component={RateioStatus} />
       <Route path={"/404"} component={NotFound} />
@@ -36,10 +41,12 @@ function App() {
         defaultTheme="light"
         // switchable
       >
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
+        <SessionProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Router />
+          </TooltipProvider>
+        </SessionProvider>
       </ThemeProvider>
     </ErrorBoundary>
   );

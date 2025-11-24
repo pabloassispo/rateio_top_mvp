@@ -15,6 +15,13 @@
       "when": 1762485278772,
       "tag": "0001_silky_nick_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1763348573290,
+      "tag": "0002_mighty_medusa",
+      "breakpoints": true
     }
   ]
 }

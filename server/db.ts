@@ -35,7 +35,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = ["name", "email", "loginMethod"] as const;
+    const textFields = ["name", "email", "loginMethod", "password"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
@@ -85,6 +85,18 @@ export async function getUserByOpenId(openId: string) {
   }
 
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
@@ -162,7 +174,26 @@ export async function getParticipantsByRateio(rateioId: string) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
-  return await db.select().from(participants).where(eq(participants.rateioId, rateioId));
+  const participantList = await db.select().from(participants).where(eq(participants.rateioId, rateioId));
+  
+  // Fetch user info for each participant
+  const participantsWithUsers = await Promise.all(
+    participantList.map(async (participant) => {
+      if (participant.userId) {
+        const user = await db.select().from(users).where(eq(users.id, participant.userId)).limit(1);
+        return {
+          ...participant,
+          user: user.length > 0 ? user[0] : null,
+        };
+      }
+      return {
+        ...participant,
+        user: null,
+      };
+    })
+  );
+
+  return participantsWithUsers;
 }
 
 export async function updateParticipantStatus(id: string, status: "PENDENTE" | "PAGO" | "REEMBOLSADO", paidAmount?: number) {

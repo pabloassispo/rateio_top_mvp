@@ -93,16 +93,18 @@ class PagarmeService {
   async createPixCharge(
     amount: number,
     description: string,
-    customer?: { name: string; email: string; document?: string; document_type?: string } | string
+    customer?: { name: string; email: string; document?: string; document_type?: string; phones?: { mobile_phone?: { country_code: string; area_code: string; number: string }; home_phone?: { country_code: string; area_code: string; number: string } } } | string
   ): Promise<PagarmeCharge> {
     try {
       const payload: any = {
         amount,
-        payment_method: "pix",
         description,
         capture: true, // Auto-capture on payment
-        pix: {
-          expires_in: 900, // 15 minutes in seconds
+        payment: {
+          payment_method: "pix",
+          pix: {
+            expires_in: 900, // 15 minutes in seconds
+          },
         },
       };
 
@@ -111,14 +113,35 @@ class PagarmeService {
         // If customer is a string, treat it as customer_id
         payload.customer_id = customer;
       } else if (customer) {
-        // If customer is an object, use it directly
-        payload.customer = customer;
+        // If customer is an object, use it directly but ensure document and phones are present
+        payload.customer = {
+          ...customer,
+          document: customer.document || "30101893035", // Mocked CPF if not provided
+          document_type: customer.document_type || "CPF",
+          type: customer.document_type === "CNPJ" ? "company" : "individual",
+          phones: customer.phones || {
+            mobile_phone: {
+              country_code: "55",
+              area_code: "11",
+              number: "987654321",
+            },
+          },
+        };
       } else {
-        // If no customer data provided, create a default one
+        // If no customer data provided, create a default one with mocked document and phones
         payload.customer = {
           name: "Participante Rateio",
           email: "participante@rateio.top",
+          document: "12345678909", // Mocked CPF
+          document_type: "CPF",
           type: "individual",
+          phones: {
+            mobile_phone: {
+              country_code: "55",
+              area_code: "11",
+              number: "987654321",
+            },
+          },
         };
       }
 
@@ -133,13 +156,14 @@ class PagarmeService {
       console.log("[Pagar.me] ✅ Charge created successfully");
       console.log("[Pagar.me] Response data:", JSON.stringify(response.data, null, 2));
 
+      const transaction = response.data.last_transaction;
       return {
         id: response.data.id,
         status: response.data.status,
         amount: response.data.amount,
-        pix_qr_code: response.data.last_transaction?.qr_code,
-        pix_copy_and_paste: response.data.last_transaction?.qr_code_text,
-        pix_expires_at: response.data.last_transaction?.pix_qr_code_expires_at,
+        pix_qr_code: transaction?.qr_code_url || transaction?.qr_code,
+        pix_copy_and_paste: transaction?.qr_code_text || transaction?.copy_and_paste,
+        pix_expires_at: transaction?.pix_qr_code_expires_at || transaction?.expires_at,
       };
     } catch (error: any) {
       console.error("\n========== PAGAR.ME ERROR DETAILS ==========");
@@ -188,14 +212,15 @@ class PagarmeService {
   async getChargeStatus(chargeId: string): Promise<PagarmeCharge> {
     try {
       const response = await this.client.get(`/charges/${chargeId}`);
+      const transaction = response.data.last_transaction;
 
       return {
         id: response.data.id,
         status: response.data.status,
         amount: response.data.amount,
-        pix_qr_code: response.data.last_transaction?.qr_code,
-        pix_copy_and_paste: response.data.last_transaction?.qr_code_text,
-        pix_expires_at: response.data.last_transaction?.pix_qr_code_expires_at,
+        pix_qr_code: transaction?.qr_code_url || transaction?.qr_code,
+        pix_copy_and_paste: transaction?.qr_code_text || transaction?.copy_and_paste,
+        pix_expires_at: transaction?.pix_qr_code_expires_at || transaction?.expires_at,
       };
     } catch (error: any) {
       console.error("[Pagar.me] Error getting charge status:", error.response?.data || error.message);

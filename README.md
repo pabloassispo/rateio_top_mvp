@@ -247,7 +247,12 @@ curl -X POST https://api.pagar.me/core/v5/charges \
   -H "Content-Type: application/json" \
   -d '{
     "amount": 50000,
-    "payment_method": "pix",
+    "payment": {
+      "payment_method": "pix",
+      "pix": {
+        "expires_in": 900
+      }
+    },
     "customer": {
       "email": "test@example.com",
       "name": "Test User"

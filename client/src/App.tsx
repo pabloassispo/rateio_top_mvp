@@ -11,6 +11,7 @@ import CreateRateio from "./pages/CreateRateio";
 import ParticipateRateio from "./pages/ParticipateRateio";
 import RateioStatus from "./pages/RateioStatus";
 import RateioDetails from "./pages/RateioDetails";
+import MyRateios from "./pages/MyRateios";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -19,6 +20,7 @@ function Router() {
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={Login} />
       <Route path={"/create"} component={CreateRateio} />
+      <Route path={"/my-rateios"} component={MyRateios} />
       <Route path={"/rateio/:id"} component={RateioDetails} />
       <Route path={"/rateio/:id/participate"} component={ParticipateRateio} />
       <Route path={"/rateio/:id/status"} component={RateioStatus} />

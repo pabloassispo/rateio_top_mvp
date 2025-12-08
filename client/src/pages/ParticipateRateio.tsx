@@ -141,15 +141,25 @@ export default function ParticipateRateio() {
               <CardTitle className="text-green-900">QR Code Gerado!</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* QR Code SVG */}
+              {/* QR Code Image */}
               <div className="flex justify-center p-4 bg-white rounded-lg border border-green-200">
-                {qrCode && qrCode.startsWith("<svg") ? (
-                  <div
-                    dangerouslySetInnerHTML={{ __html: qrCode }}
-                    className="w-64 h-64"
-                  />
-                ) : qrCode ? (
-                  <img src={qrCode} alt="QR Code Pix" className="w-64 h-64" />
+                {qrCode ? (
+                  qrCode.startsWith("<svg") ? (
+                    <div
+                      dangerouslySetInnerHTML={{ __html: qrCode }}
+                      className="w-64 h-64"
+                    />
+                  ) : (
+                    <img 
+                      src={qrCode} 
+                      alt="QR Code Pix" 
+                      className="w-64 h-64 object-contain"
+                      onError={(e) => {
+                        console.error("Failed to load QR code image:", qrCode);
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )
                 ) : null}
               </div>
 

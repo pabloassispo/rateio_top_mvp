@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Copy, Share2, CheckCircle2 } from "lucide-react";
+import { Copy, Share2, CheckCircle2, List } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
 interface RateioConfirmationProps {
@@ -16,6 +17,7 @@ export default function RateioConfirmation({
   slug,
   onCreateAnother,
 }: RateioConfirmationProps) {
+  const [, setLocation] = useLocation();
   const [copied, setCopied] = useState(false);
   const { data: rateio, isLoading } = trpc.rateio.getById.useQuery({ id: rateioId });
 
@@ -152,7 +154,7 @@ export default function RateioConfirmation({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <Button
               onClick={handleShare}
               className="w-full"
@@ -160,6 +162,15 @@ export default function RateioConfirmation({
             >
               <Share2 className="mr-2 h-4 w-4" />
               Compartilhar
+            </Button>
+            <Button
+              onClick={() => setLocation("/my-rateios")}
+              variant="outline"
+              className="w-full"
+              size="lg"
+            >
+              <List className="mr-2 h-4 w-4" />
+              Meus Rateios
             </Button>
             <Button
               onClick={onCreateAnother}

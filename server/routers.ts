@@ -122,7 +122,23 @@ const rateioRouter = router({
     }),
 
   getByCreator: protectedProcedure.query(async ({ ctx }) => {
-    return await db.getRateiosByCreator(ctx.user.id);
+    const rateios = await db.getRateiosByCreator(ctx.user.id);
+    
+    // Enhance each rateio with progress information
+    const rateiossWithProgress = await Promise.all(
+      rateios.map(async (rateio) => {
+        const progress = await db.calculateRateioProgress(rateio.id);
+        const participantList = await db.getParticipantsByRateio(rateio.id);
+        
+        return {
+          ...rateio,
+          progress,
+          participantCount: participantList.length,
+        };
+      })
+    );
+    
+    return rateiossWithProgress;
   }),
 
   updateStatus: protectedProcedure
@@ -263,7 +279,6 @@ const paymentRouter = router({
           {
             name: "Participante Rateio",
             email: customerEmail,
-            type: "individual",
           }
         );
 

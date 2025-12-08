@@ -66,14 +66,23 @@ export default function Home() {
             Crie rateios, compartilhe links e receba pagamentos via Pix de forma segura e automática
           </p>
           {isAuthenticated ? (
-            <Button
-              size="lg"
-              onClick={() => setLocation("/create")}
-              className="bg-blue-600 hover:bg-blue-700"
-            >
-              <Plus className="mr-2 h-5 w-5" />
-              Criar Novo Rateio
-            </Button>
+            <div className="flex gap-4 justify-center">
+              <Button
+                size="lg"
+                onClick={() => setLocation("/create")}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Plus className="mr-2 h-5 w-5" />
+                Criar Novo Rateio
+              </Button>
+              <Button
+                size="lg"
+                onClick={() => setLocation("/my-rateios")}
+                variant="outline"
+              >
+                Ver Meus Rateios
+              </Button>
+            </div>
           ) : (
             <Button
               size="lg"

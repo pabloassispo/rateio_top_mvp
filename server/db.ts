@@ -284,19 +284,29 @@ export async function calculateRateioProgress(rateioId: string) {
   const rateio = await getRateioById(rateioId);
   if (!rateio) return null;
 
+  // Get all participants and sum their paidAmount
+  const participantList = await db.select().from(participants).where(eq(participants.rateioId, rateioId));
+  const paidAmount = participantList
+    .filter(p => p.status === "PAGO")
+    .reduce((sum, p) => sum + (p.paidAmount || 0), 0);
+
+  // Also check transactions as fallback/verification
   const txs = await getTransactionsByRateio(rateioId);
-  const paidAmount = txs
+  const paidFromTransactions = txs
     .filter(tx => tx.status === "PAGO")
     .reduce((sum, tx) => sum + tx.amount, 0);
 
+  // Use the maximum of both to ensure accuracy
+  const finalPaidAmount = Math.max(paidAmount, paidFromTransactions);
+
   const target = rateio.targetAmount || rateio.totalAmount;
-  const progress = Math.min((paidAmount / target) * 100, 100);
+  const progress = target > 0 ? Math.min((finalPaidAmount / target) * 100, 100) : 0;
 
   return {
-    paidAmount,
+    paidAmount: finalPaidAmount,
     targetAmount: target,
     progress,
-    isPaid: paidAmount >= target,
+    isPaid: finalPaidAmount >= target,
   };
 }
 

@@ -1,0 +1,172 @@
+### REST Client Requests for Rateio API
+### Use the REST Client extension (humao.rest-client) in VS Code
+### Click "Send Request" above each request to execute it
+
+@baseUrl = http://localhost:3000
+@apiUrl = {{baseUrl}}/api
+
+### Variables (update these with your actual values)
+@chargeId = ch_xxxxx
+@transactionId = tran_A17rDE1ubDUBdR0Q
+@rateioId = c8de05ad-e01e-4205-ab9c-589aa0f647c8
+@participantId = 3e5c99d4-db98-4376-a3ca-def199ab21b5
+
+###############################################
+# WEBHOOK TEST ENDPOINTS
+###############################################
+
+### Find Charge ID from Participant ID
+GET {{apiUrl}}/webhook/pagarme/find-charge/{{participantId}}
+
+### Simulate Payment - Using Charge ID
+POST {{apiUrl}}/webhook/pagarme/test
+Content-Type: application/json
+
+{
+  "chargeId": "{{chargeId}}",
+  "amount": 300,
+  "type": "charge.paid"
+}
+
+### Simulate Payment - Using Participant ID (Easiest!)
+POST {{apiUrl}}/webhook/pagarme/test
+Content-Type: application/json
+
+{
+  "participantId": "{{participantId}}",
+  "amount": 300,
+  "type": "charge.paid"
+}
+
+### Simulate Payment - Using Transaction ID
+POST {{apiUrl}}/webhook/pagarme/test
+Content-Type: application/json
+
+{
+  "transactionId": "{{transactionId}}",
+  "amount": 300,
+  "type": "charge.paid"
+}
+
+### Simulate Payment - Using Transaction ID (Example)
+POST {{apiUrl}}/webhook/pagarme/test
+Content-Type: application/json
+
+{
+  "transactionId": "tran_923EpaaFxBHzLOxp",
+  "amount": 300,
+  "type": "charge.paid"
+}
+
+### Simulate Refund
+POST {{apiUrl}}/webhook/pagarme/test
+Content-Type: application/json
+
+{
+  "chargeId": "{{chargeId}}",
+  "amount": 300,
+  "type": "charge.refunded"
+}
+
+### Simulate Failed Payment
+POST {{apiUrl}}/webhook/pagarme/test
+Content-Type: application/json
+
+{
+  "chargeId": "{{chargeId}}",
+  "amount": 300,
+  "type": "charge.failed"
+}
+
+###############################################
+# RATEIO ENDPOINTS (tRPC)
+###############################################
+
+### Get Rateio by ID
+POST {{baseUrl}}/trpc/rateio.getById
+Content-Type: application/json
+
+{
+  "json": {
+    "id": "{{rateioId}}"
+  }
+}
+
+### Get Rateios by Creator
+POST {{baseUrl}}/trpc/rateio.getByCreator
+Content-Type: application/json
+
+{
+  "json": {}
+}
+
+### Get Participants by Rateio
+POST {{baseUrl}}/trpc/participant.getByRateio
+Content-Type: application/json
+
+{
+  "json": {
+    "rateioId": "{{rateioId}}"
+  }
+}
+
+### Get Participant by ID
+POST {{baseUrl}}/trpc/participant.getById
+Content-Type: application/json
+
+{
+  "json": {
+    "id": "{{participantId}}"
+  }
+}
+
+### Create Payment Intent
+POST {{baseUrl}}/trpc/payment.createIntent
+Content-Type: application/json
+
+{
+  "json": {
+    "participantId": "{{participantId}}",
+    "amount": 300
+  }
+}
+
+### Get Payment Status
+POST {{baseUrl}}/trpc/payment.getStatus
+Content-Type: application/json
+
+{
+  "json": {
+    "participantId": "{{participantId}}"
+  }
+}
+
+###############################################
+# PAGAR.ME API ENDPOINTS (Direct)
+###############################################
+
+### Get Charge Status (requires Pagar.me credentials)
+GET https://api.pagar.me/core/v5/charges/{{chargeId}}
+Authorization: Basic {{$dotenv PAGARME_API_KEY}}
+Content-Type: application/json
+
+### List Recent Charges
+GET https://api.pagar.me/core/v5/charges?size=50&page=1
+Authorization: Basic {{$dotenv PAGARME_API_KEY}}
+Content-Type: application/json
+
+###############################################
+# NOTES
+###############################################
+
+### How to use:
+### 1. Install REST Client extension in VS Code
+### 2. Update variables at the top with your actual values
+### 3. Click "Send Request" above any request to execute it
+### 
+### For Pagar.me endpoints, set PAGARME_API_KEY in your .env file
+### Format: PAGARME_API_KEY=your_api_key_here
+###
+### The webhook test endpoint bypasses signature validation
+### and allows simulating payments for testing purposes.
+

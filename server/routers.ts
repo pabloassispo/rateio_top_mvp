@@ -115,7 +115,15 @@ const rateioRouter = router({
 
       return {
         ...rateio,
-        progress,
+        // Ensure numeric values are numbers, not strings
+        totalAmount: Number(rateio.totalAmount),
+        targetAmount: rateio.targetAmount ? Number(rateio.targetAmount) : null,
+        progress: progress ? {
+          paidAmount: Number(progress.paidAmount),
+          targetAmount: Number(progress.targetAmount),
+          progress: Number(progress.progress),
+          isPaid: Boolean(progress.isPaid),
+        } : null,
         participantCount: participantList.length,
         events,
       };
@@ -132,7 +140,15 @@ const rateioRouter = router({
         
         return {
           ...rateio,
-          progress,
+          // Ensure numeric values are numbers, not strings
+          totalAmount: Number(rateio.totalAmount),
+          targetAmount: rateio.targetAmount ? Number(rateio.targetAmount) : null,
+          progress: progress ? {
+            paidAmount: Number(progress.paidAmount),
+            targetAmount: Number(progress.targetAmount),
+            progress: Number(progress.progress),
+            isPaid: Boolean(progress.isPaid),
+          } : null,
           participantCount: participantList.length,
         };
       })
@@ -233,9 +249,10 @@ const participantRouter = router({
     .input(z.object({ rateioId: z.string().uuid() }))
     .query(async ({ input }) => {
       const participants = await db.getParticipantsByRateio(input.rateioId);
-      // Return participants with user info
+      // Return participants with user info and ensure numeric values
       return participants.map(p => ({
         ...p,
+        paidAmount: Number(p.paidAmount || 0),
         user: p.user ? {
           id: p.user.id,
           name: p.user.name,
@@ -252,6 +269,7 @@ const paymentRouter = router({
     .input(
       z.object({
         participantId: z.string().uuid(),
+        amount: z.number().int().positive().optional(), // Amount in cents, optional
       })
     )
     .mutation(async ({ input }) => {
@@ -265,6 +283,17 @@ const paymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND" });
       }
 
+      // Use provided amount or default to totalAmount
+      const chargeAmount = input.amount || rateio.totalAmount;
+
+      // Validate that amount doesn't exceed totalAmount
+      if (chargeAmount > rateio.totalAmount) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `O valor da contribuição não pode ser maior que R$ ${(rateio.totalAmount / 100).toFixed(2)}`,
+        });
+      }
+
       try {
         // Create Pix charge via Pagar.me
         // Pagar.me requires customer data - use participant's PIX key to derive email if possible
@@ -274,7 +303,7 @@ const paymentRouter = router({
         }
         
         const charge = await pagarmeService.createPixCharge(
-          rateio.totalAmount,
+          chargeAmount,
           `Rateio: ${rateio.name}`,
           {
             name: "Participante Rateio",

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { APP_LOGO, APP_TITLE } from "@/const";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { useSession } from "@/contexts/SessionContext";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -18,17 +19,19 @@ export default function Login() {
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
 
   const utils = trpc.useUtils();
+  const { refresh } = useSession();
 
   const loginMutation = trpc.auth.login.useMutation({
     onSuccess: async () => {
       toast.success("Login realizado com sucesso!");
-      // Invalidate and refetch user data
+      // Invalidate cache first
       await utils.auth.me.invalidate();
-      await utils.auth.me.refetch();
-      // Small delay to ensure session is updated
+      // Refresh session to get updated user data
+      await refresh();
+      // Wait a bit longer to ensure cookie is set and session is updated
       setTimeout(() => {
         window.location.href = "/";
-      }, 100);
+      }, 200);
     },
     onError: (error) => {
       toast.error(error.message || "Erro ao fazer login");
@@ -37,14 +40,15 @@ export default function Login() {
 
   const registerMutation = trpc.auth.register.useMutation({
     onSuccess: async () => {
-      toast.success("Conta criada com sucesso!");
-      // Invalidate and refetch user data
+      toast.success("Conta criada com sucesso! Você foi autenticado automaticamente.");
+      // Invalidate cache first
       await utils.auth.me.invalidate();
-      await utils.auth.me.refetch();
-      // Small delay to ensure session is updated
+      // Refresh session to get updated user data
+      await refresh();
+      // Wait a bit longer to ensure cookie is set and session is updated
       setTimeout(() => {
         window.location.href = "/";
-      }, 100);
+      }, 200);
     },
     onError: (error) => {
       toast.error(error.message || "Erro ao criar conta");

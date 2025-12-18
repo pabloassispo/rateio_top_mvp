@@ -39,10 +39,17 @@ export function getSessionCookieOptions(
   //       ? hostname
   //       : undefined;
 
+  const isSecure = isSecureRequest(req);
+  const isLocalhost = LOCAL_HOSTS.has(req.hostname) || req.hostname === "127.0.0.1" || req.hostname === "::1";
+
+  // In production (HTTPS), use "none" for cross-site requests
+  // In development (HTTP/localhost), use "lax" since "none" requires secure: true
+  const sameSite: "strict" | "lax" | "none" = isSecure && !isLocalhost ? "none" : "lax";
+
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
-    secure: isSecureRequest(req),
+    sameSite,
+    secure: isSecure,
   };
 }

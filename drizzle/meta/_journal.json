@@ -22,6 +22,20 @@
       "when": 1763348573290,
       "tag": "0002_mighty_medusa",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1766012592648,
+      "tag": "0003_famous_makkari",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1766014946945,
+      "tag": "0004_curious_reaper",
+      "breakpoints": true
     }
   ]
 }

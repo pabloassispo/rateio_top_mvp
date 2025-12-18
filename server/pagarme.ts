@@ -113,26 +113,30 @@ class PagarmeService {
         // If customer is a string, treat it as customer_id
         payload.customer_id = customer;
       } else if (customer) {
-        // If customer is an object, use it directly but ensure document and phones are present
+        // If customer is an object, use it directly
+        // Only add default document/phones if not provided (for backward compatibility)
         payload.customer = {
           ...customer,
-          document: customer.document || "30101893035", // Mocked CPF if not provided
-          document_type: customer.document_type || "CPF",
+          document: customer.document || undefined, // Only add if provided
+          document_type: customer.document_type || (customer.document ? "CPF" : undefined),
           type: customer.document_type === "CNPJ" ? "company" : "individual",
-          phones: customer.phones || {
-            mobile_phone: {
-              country_code: "55",
-              area_code: "11",
-              number: "987654321",
-            },
-          },
+          phones: customer.phones || undefined, // Only add if provided
         };
+        
+        // Remove undefined fields to avoid sending them
+        if (!payload.customer.document) {
+          delete payload.customer.document;
+          delete payload.customer.document_type;
+        }
+        if (!payload.customer.phones) {
+          delete payload.customer.phones;
+        }
       } else {
-        // If no customer data provided, create a default one with mocked document and phones
+        // If no customer data provided, create a default one (fallback for unauthenticated users)
         payload.customer = {
           name: "Participante Rateio",
           email: "participante@rateio.top",
-          document: "12345678909", // Mocked CPF
+          document: "12345678909", // Mocked CPF - only used as fallback
           document_type: "CPF",
           type: "individual",
           phones: {

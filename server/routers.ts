@@ -198,7 +198,7 @@ const participantRouter = router({
         autoRefund: z.boolean().default(false),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const rateio = await db.getRateioById(input.rateioId);
       if (!rateio) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Rateio not found" });
@@ -226,6 +226,7 @@ const participantRouter = router({
         pixKey: input.pixKey,
         pixKeyType,
         autoRefund: input.autoRefund,
+        userId: ctx.user?.id, // Save userId if user is authenticated
       });
 
       await db.createRateioEvent({
@@ -296,19 +297,64 @@ const paymentRouter = router({
 
       try {
         // Create Pix charge via Pagar.me
-        // Pagar.me requires customer data - use participant's PIX key to derive email if possible
-        let customerEmail = "participante@rateio.top";
-        if (participant.pixKeyType === "EMAIL") {
-          customerEmail = participant.pixKey;
+        // Pagar.me requires customer data - get from user if participant has userId
+        let customerData: {
+          name: string;
+          email: string;
+          document?: string;
+          document_type?: string;
+          phones?: {
+            mobile_phone?: {
+              country_code: string;
+              area_code: string;
+              number: string;
+            };
+          };
+        } = {
+          name: "Participante Rateio",
+          email: "participante@rateio.top",
+        };
+
+        // If participant has userId, get user data
+        if (participant.userId) {
+          const user = await db.getUserById(participant.userId);
+          if (user) {
+            customerData.name = user.name || customerData.name;
+            customerData.email = user.email || customerData.email;
+            
+            // Use CPF if available
+            if (user.cpf) {
+              customerData.document = user.cpf;
+              customerData.document_type = "CPF";
+            }
+            
+            // Format phone number for Pagar.me (contato format: 10 or 11 digits, e.g., "11987654321")
+            if (user.contato && (user.contato.length === 10 || user.contato.length === 11)) {
+              const phone = user.contato;
+              // Extract area code (first 2 digits) and number (rest)
+              const areaCode = phone.substring(0, 2);
+              const number = phone.substring(2);
+              
+              customerData.phones = {
+                mobile_phone: {
+                  country_code: "55", // Brazil
+                  area_code: areaCode,
+                  number: number,
+                },
+              };
+            }
+          }
+        }
+        
+        // Fallback: use participant's PIX key as email if it's an EMAIL type
+        if (participant.pixKeyType === "EMAIL" && !customerData.email.includes("@")) {
+          customerData.email = participant.pixKey;
         }
         
         const charge = await pagarmeService.createPixCharge(
           chargeAmount,
           `Rateio: ${rateio.name}`,
-          {
-            name: "Participante Rateio",
-            email: customerEmail,
-          }
+          customerData
         );
 
         const paymentIntentId = uuidv4();
@@ -419,7 +465,12 @@ export const appRouter = router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
-      ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      // Clear cookie with same options used to set it
+      ctx.res.clearCookie(COOKIE_NAME, { 
+        ...cookieOptions, 
+        maxAge: 0,
+        expires: new Date(0),
+      });
       return {
         success: true,
       } as const;
@@ -536,6 +587,46 @@ export const appRouter = router({
         });
 
         return { success: true };
+      }),
+    updateProfile: protectedProcedure
+      .input(
+        z.object({
+          cpf: z.string().length(11, "CPF deve ter 11 dígitos"),
+          contato: z.string().min(10, "Contato deve ter pelo menos 10 dígitos").max(11, "Contato deve ter no máximo 11 dígitos"),
+          pixKey: z.string().optional(),
+          pixKeyType: z.enum(["EVP", "CPF", "CNPJ", "EMAIL", "TELEFONE"]).optional(),
+        })
+      )
+      .mutation(async ({ ctx, input }) => {
+        await db.upsertUser({
+          openId: ctx.user.openId,
+          cpf: input.cpf,
+          contato: input.contato,
+        });
+
+        // Save Pix key if provided
+        if (input.pixKey && input.pixKeyType) {
+          // Validate Pix key
+          if (!validatePixKey(input.pixKey, input.pixKeyType)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Chave Pix inválida",
+            });
+          }
+
+          await db.upsertPixKey({
+            userId: ctx.user.id,
+            pixKey: input.pixKey,
+            pixKeyType: input.pixKeyType,
+          });
+        }
+
+        return { success: true };
+      }),
+    getPixKey: protectedProcedure
+      .query(async ({ ctx }) => {
+        const pixKey = await db.getPixKeyByUserId(ctx.user.id);
+        return pixKey || null;
       }),
   }),
 

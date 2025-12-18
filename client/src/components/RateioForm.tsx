@@ -7,12 +7,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import CompleteProfileModal from "@/components/CompleteProfileModal";
 
 interface RateioFormProps {
   onSuccess?: (rateioId: string, slug: string) => void;
 }
 
 export default function RateioForm({ onSuccess }: RateioFormProps) {
+  const { user } = useAuth();
+  const [showCompleteProfileModal, setShowCompleteProfileModal] = useState(false);
+  
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -23,6 +28,9 @@ export default function RateioForm({ onSuccess }: RateioFormProps) {
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const createRateio = trpc.rateio.create.useMutation();
+  const { data: pixKey } = trpc.auth.getPixKey.useQuery(undefined, {
+    enabled: !!user,
+  });
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
@@ -65,6 +73,12 @@ export default function RateioForm({ onSuccess }: RateioFormProps) {
     e.preventDefault();
 
     if (!validateForm()) {
+      return;
+    }
+
+    // Check if user has CPF, contato, and Pix key filled
+    if (!user?.cpf || !user?.contato || !pixKey) {
+      setShowCompleteProfileModal(true);
       return;
     }
 
@@ -241,6 +255,34 @@ export default function RateioForm({ onSuccess }: RateioFormProps) {
           </Button>
         </form>
       </CardContent>
+      <CompleteProfileModal
+        open={showCompleteProfileModal}
+        onOpenChange={setShowCompleteProfileModal}
+        message="Precisamos de mais algumas informações para criar seu rateio"
+        requirePixKey={true}
+        onComplete={async () => {
+          // After completing profile, try to submit again
+          if (validateForm()) {
+            try {
+              const totalAmountCents = Math.round(parseFloat(formData.totalAmount) * 100);
+
+              const result = await createRateio.mutateAsync({
+                name: formData.name,
+                description: formData.description || undefined,
+                totalAmount: totalAmountCents,
+                privacyMode: formData.privacyMode,
+                expiresAt: formData.expiresAt ? new Date(formData.expiresAt) : undefined,
+              });
+
+              onSuccess?.(result.id, result.slug);
+            } catch (error: any) {
+              setErrors({
+                submit: error.message || "Erro ao criar rateio",
+              });
+            }
+          }
+        }}
+      />
     </Card>
   );
 }

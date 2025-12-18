@@ -8,11 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Loader2, ArrowLeft, Copy, CheckCircle2 } from "lucide-react";
 import PixKeyInput from "@/components/PixKeyInput";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import CompleteProfileModal from "@/components/CompleteProfileModal";
 
 export default function ParticipateRateio() {
   const [, params] = useRoute("/rateio/:id/participate");
   const [, setLocation] = useLocation();
   const rateioId = params?.id;
+  const { user } = useAuth();
+  const [showCompleteProfileModal, setShowCompleteProfileModal] = useState(false);
 
   const [pixKey, setPixKey] = useState("");
   const [autoRefund, setAutoRefund] = useState(false);
@@ -36,6 +40,12 @@ export default function ParticipateRateio() {
   const handleCreateParticipant = async () => {
     if (!termsAccepted) {
       setError("Você deve aceitar os termos para continuar");
+      return;
+    }
+
+    // Check if user has CPF and contato filled
+    if (user && (!user.cpf || !user.contato)) {
+      setShowCompleteProfileModal(true);
       return;
     }
 
@@ -380,6 +390,15 @@ export default function ParticipateRateio() {
           </Card>
         )}
       </div>
+      <CompleteProfileModal
+        open={showCompleteProfileModal}
+        onOpenChange={setShowCompleteProfileModal}
+        message="Precisamos de mais algumas informações para processar seu pagamento"
+        onComplete={() => {
+          // After completing profile, try to create participant again
+          handleCreateParticipant();
+        }}
+      />
     </div>
   );
 }

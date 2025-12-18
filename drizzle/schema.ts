@@ -10,6 +10,8 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }),
   password: varchar("password", { length: 255 }), // Hashed password for email/password auth
   loginMethod: varchar("loginMethod", { length: 64 }),
+  cpf: varchar("cpf", { length: 11 }), // CPF without formatting (numbers only)
+  contato: varchar("contato", { length: 11 }), // Phone number without formatting (numbers only)
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -110,3 +112,18 @@ export const rateioEvents = mysqlTable("rateioEvents", {
 
 export type RateioEvent = typeof rateioEvents.$inferSelect;
 export type InsertRateioEvent = typeof rateioEvents.$inferInsert;
+
+/**
+ * User Pix keys table
+ */
+export const pixKeys = mysqlTable("pixKeys", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id).unique(),
+  pixKey: varchar("pixKey", { length: 255 }).notNull(), // EVP, CPF, CNPJ, email, phone
+  pixKeyType: mysqlEnum("pixKeyType", ["EVP", "CPF", "CNPJ", "EMAIL", "TELEFONE"]).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type PixKey = typeof pixKeys.$inferSelect;
+export type InsertPixKey = typeof pixKeys.$inferInsert;

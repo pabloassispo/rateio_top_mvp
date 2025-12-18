@@ -19,8 +19,8 @@ export function useAuth(options?: UseAuthOptions) {
   const utils = trpc.useUtils();
 
   const logoutMutation = trpc.auth.logout.useMutation({
-    onSuccess: () => {
-      clear();
+    onSuccess: async () => {
+      await clear();
     },
   });
 
@@ -33,7 +33,7 @@ export function useAuth(options?: UseAuthOptions) {
         error.data?.code === "UNAUTHORIZED"
       ) {
         // Already logged out, just redirect
-        clear();
+        await clear();
         if (typeof window !== "undefined") {
           window.location.href = "/login";
         }
@@ -41,8 +41,11 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
-      clear();
+      // Always clear state and invalidate cache, even if logout fails
+      await clear();
       await utils.auth.me.invalidate();
+      // Reset query cache to ensure fresh state
+      utils.auth.me.reset();
       
       // Always redirect to login page after logout, even in dev mode
       if (typeof window !== "undefined") {

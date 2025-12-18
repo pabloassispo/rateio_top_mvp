@@ -1,6 +1,6 @@
 import { eq, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, rateios, participants, transactions, paymentIntents, rateioEvents } from "../drizzle/schema";
+import { InsertUser, users, rateios, participants, transactions, paymentIntents, rateioEvents, pixKeys, InsertPixKey } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -35,7 +35,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     };
     const updateSet: Record<string, unknown> = {};
 
-    const textFields = ["name", "email", "loginMethod", "password"] as const;
+    const textFields = ["name", "email", "loginMethod", "password", "cpf", "contato"] as const;
     type TextField = (typeof textFields)[number];
 
     const assignNullable = (field: TextField) => {
@@ -97,6 +97,18 @@ export async function getUserByEmail(email: string) {
   }
 
   const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+
+  return result.length > 0 ? result[0] : undefined;
+}
+
+export async function getUserById(id: number) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get user: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
 }
@@ -338,4 +350,36 @@ export async function getPaymentIntentByChargeId(chargeId: string) {
 
   const result = await db.select().from(paymentIntents).where(eq(paymentIntents.pagarmeIntentId, chargeId)).limit(1);
   return result.length > 0 ? result[0] : null;
+}
+
+// ============= PIX KEY QUERIES =============
+
+export async function upsertPixKey(data: InsertPixKey) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const values: InsertPixKey = {
+    userId: data.userId,
+    pixKey: data.pixKey,
+    pixKeyType: data.pixKeyType,
+  };
+
+  await db.insert(pixKeys).values(values).onDuplicateKeyUpdate({
+    set: {
+      pixKey: values.pixKey,
+      pixKeyType: values.pixKeyType,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+export async function getPixKeyByUserId(userId: number) {
+  const db = await getDb();
+  if (!db) {
+    console.warn("[Database] Cannot get pix key: database not available");
+    return undefined;
+  }
+
+  const result = await db.select().from(pixKeys).where(eq(pixKeys.userId, userId)).limit(1);
+  return result.length > 0 ? result[0] : undefined;
 }

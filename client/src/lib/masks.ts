@@ -64,3 +64,4 @@ export function validatePhone(phone: string): boolean {
   return numbers.length === 10 || numbers.length === 11;
 }
 
+

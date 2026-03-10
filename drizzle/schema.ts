@@ -68,6 +68,7 @@ export const paymentIntents = mysqlTable("paymentIntents", {
   id: varchar("id", { length: 36 }).primaryKey(), // UUID
   participantId: varchar("participantId", { length: 36 }).notNull().references(() => participants.id),
   pagarmeIntentId: varchar("pagarmeIntentId", { length: 255 }).notNull().unique(),
+  amount: int("amount").notNull(), // in cents - the actual charge amount
   qrCode: text("qrCode"), // SVG or URL
   copyPaste: varchar("copyPaste", { length: 255 }), // "copia e cola" code
   status: mysqlEnum("status", ["CRIADO", "EXPIRADO", "PAGO"]).default("CRIADO").notNull(),

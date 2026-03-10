@@ -1,0 +1,1 @@
+ALTER TABLE `paymentIntents` ADD `amount` int NOT NULL;

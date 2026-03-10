@@ -4,3 +4,5 @@ ALTER TABLE `users`
   ADD COLUMN `contato` varchar(11) NULL AFTER `cpf`;
 
 
+
+

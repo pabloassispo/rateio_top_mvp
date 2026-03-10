@@ -9,26 +9,39 @@ export const ENV = {
   isDevMode: process.env.VITE_DEV_MODE === "true",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // SSL/HTTPS Configuration (optional, for production with mTLS webhooks)
+  enableHttps: process.env.ENABLE_HTTPS === "true",
+  sslCertPath: process.env.SSL_CERT_PATH ?? "",
+  sslKeyPath: process.env.SSL_KEY_PATH ?? "",
+  efiWebhookCaPath: process.env.EFI_WEBHOOK_CA_PATH ?? "",
+  // Efí Pay (antigo Gerencianet) credentials
+  efiClientId: process.env.EFI_CLIENT_ID ?? "",
+  efiClientSecret: process.env.EFI_CLIENT_SECRET ?? "",
+  efiCertificatePath: process.env.EFI_CERTIFICATE_PATH ?? "",
+  efiCertificatePassphrase: process.env.EFI_CERTIFICATE_PASSPHRASE ?? "",
+  efiSandbox: process.env.EFI_SANDBOX === "true",
+  efiPixKey: process.env.EFI_PIX_KEY ?? "", // Chave Pix da conta Efí para receber pagamentos
+  // Legacy Pagar.me (deprecated)
   pagarmeApiKey: process.env.PAGARME_API_KEY ?? "",
   pagarmeAccountId: process.env.PAGARME_ACCOUNT_ID ?? "",
   pagarmeWebhookSecret: process.env.PAGARME_WEBHOOK_SECRET ?? "",
   pagarmeWebhookUrl: process.env.PAGARME_WEBHOOK_URL ?? "",
 };
 
-// Debug logging for Pagar.me env vars
+// Debug logging for Efí Pay env vars
 if (process.env.NODE_ENV === "development") {
   console.log("\n========== ENV LOADER DEBUG ==========");
-  console.log("[ENV] process.env.PAGARME_API_KEY:", process.env.PAGARME_API_KEY ? 
-    `${process.env.PAGARME_API_KEY.substring(0, 20)}... (${process.env.PAGARME_API_KEY.length} chars)` : 
+  console.log("[ENV] EFI_CLIENT_ID:", process.env.EFI_CLIENT_ID ? 
+    `${process.env.EFI_CLIENT_ID.substring(0, 20)}... (${process.env.EFI_CLIENT_ID.length} chars)` : 
     "UNDEFINED");
-  console.log("[ENV] process.env.PAGARME_ACCOUNT_ID:", process.env.PAGARME_ACCOUNT_ID ? 
-    `${process.env.PAGARME_ACCOUNT_ID.substring(0, 20)}... (${process.env.PAGARME_ACCOUNT_ID.length} chars)` : 
+  console.log("[ENV] EFI_CLIENT_SECRET:", process.env.EFI_CLIENT_SECRET ? 
+    `${process.env.EFI_CLIENT_SECRET.substring(0, 20)}... (${process.env.EFI_CLIENT_SECRET.length} chars)` : 
     "UNDEFINED");
-  console.log("[ENV] ENV.pagarmeApiKey:", ENV.pagarmeApiKey ? 
-    `${ENV.pagarmeApiKey.substring(0, 20)}... (${ENV.pagarmeApiKey.length} chars)` : 
-    "EMPTY STRING");
-  console.log("[ENV] ENV.pagarmeAccountId:", ENV.pagarmeAccountId ? 
-    `${ENV.pagarmeAccountId.substring(0, 20)}... (${ENV.pagarmeAccountId.length} chars)` : 
-    "EMPTY STRING");
+  console.log("[ENV] EFI_CERTIFICATE_PATH:", process.env.EFI_CERTIFICATE_PATH || "UNDEFINED");
+  console.log("[ENV] EFI_CERTIFICATE_PASSPHRASE:", process.env.EFI_CERTIFICATE_PASSPHRASE ? "(set)" : "(not set)");
+  console.log("[ENV] EFI_SANDBOX:", process.env.EFI_SANDBOX || "UNDEFINED");
+  console.log("[ENV] EFI_PIX_KEY:", process.env.EFI_PIX_KEY ? 
+    `${process.env.EFI_PIX_KEY.substring(0, 20)}...` : 
+    "UNDEFINED");
   console.log("======================================\n");
 }

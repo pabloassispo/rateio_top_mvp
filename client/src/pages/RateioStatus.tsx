@@ -3,15 +3,20 @@ import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { ArrowLeft, RefreshCw, CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { ArrowLeft, RefreshCw, CheckCircle2, Clock, AlertCircle, Send, Loader2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { toast } from "sonner";
 
 export default function RateioStatus() {
   const [, params] = useRoute("/rateio/:id/status");
   const [, setLocation] = useLocation();
   const rateioId = params?.id;
+  const { user } = useAuth();
+  const [isTransferring, setIsTransferring] = useState(false);
 
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const utils = trpc.useUtils();
   const { data: rateio, isLoading, refetch } = trpc.rateio.getById.useQuery(
     { id: rateioId! },
     { enabled: !!rateioId, refetchInterval: autoRefresh ? 3000 : false }
@@ -21,6 +26,36 @@ export default function RateioStatus() {
     { rateioId: rateioId! },
     { enabled: !!rateioId, refetchInterval: autoRefresh ? 3000 : false }
   );
+
+  const transferMutation = trpc.payment.transferToCreator.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Transferência de R$ ${(data.amount / 100).toFixed(2)} realizada com sucesso!`, {
+        description: `e2eId: ${data.e2eId}`,
+        duration: 5000,
+      });
+      utils.rateio.getById.invalidate({ id: rateioId! });
+      refetch();
+      setIsTransferring(false);
+    },
+    onError: (error) => {
+      toast.error("Erro ao solicitar transferência", {
+        description: error.message,
+        duration: 5000,
+      });
+      setIsTransferring(false);
+    },
+  });
+
+  const handleTransferToCreator = async () => {
+    if (!rateioId) return;
+    
+    setIsTransferring(true);
+    toast.info("Solicitando transferência...", {
+      description: "Isso pode levar alguns segundos",
+    });
+
+    transferMutation.mutate({ rateioId });
+  };
 
   // Events will be fetched from the rateio data
   const events = rateio?.events || [];
@@ -145,6 +180,56 @@ export default function RateioStatus() {
                 {rateio.status === "CONCLUIDO" ? "Concluído" : "Em Andamento"}
               </span>
             </div>
+
+            {/* Transfer Button - Only for creator when goal is met */}
+            {rateio.progress?.isPaid && 
+             user?.id === rateio.creatorId && 
+             rateio.status !== "CONCLUIDO" && (
+              <div className="pt-4 border-t">
+                <div className="bg-green-50 p-4 rounded-lg border border-green-200 mb-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="h-5 w-5 text-green-600" />
+                    <span className="font-semibold text-green-900">Meta Atingida! 🎉</span>
+                  </div>
+                  <p className="text-sm text-green-800">
+                    Você pode solicitar a transferência do valor arrecadado para sua chave Pix
+                  </p>
+                </div>
+                <Button
+                  onClick={handleTransferToCreator}
+                  disabled={isTransferring || transferMutation.isPending}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold"
+                  size="lg"
+                >
+                  {isTransferring || transferMutation.isPending ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Processando...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="mr-2 h-4 w-4" />
+                      Solicitar Transferência
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+
+            {/* Completed Status */}
+            {rateio.status === "CONCLUIDO" && user?.id === rateio.creatorId && (
+              <div className="pt-4 border-t">
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <CheckCircle2 className="h-5 w-5 text-blue-600" />
+                    <span className="font-semibold text-blue-900">Transferência Realizada</span>
+                  </div>
+                  <p className="text-sm text-blue-800">
+                    O valor foi transferido com sucesso para sua conta
+                  </p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

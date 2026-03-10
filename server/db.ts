@@ -226,6 +226,7 @@ export async function createPaymentIntent(data: {
   id: string;
   participantId: string;
   pagarmeIntentId: string;
+  amount: number; // in cents
   qrCode?: string;
   copyPaste?: string;
   expiresAt: Date;
@@ -275,6 +276,17 @@ export async function getTransactionsByRateio(rateioId: string) {
   if (!db) throw new Error("Database not available");
 
   return await db.select().from(transactions).where(eq(transactions.rateioId, rateioId));
+}
+
+export async function getTransactionByParticipant(participantId: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+
+  const result = await db.select().from(transactions)
+    .where(eq(transactions.participantId, participantId))
+    .limit(1);
+  
+  return result.length > 0 ? result[0] : null;
 }
 
 export async function updateTransactionStatus(id: string, status: "PENDENTE" | "PAGO" | "FALHOU" | "REEMBOLSADO", paidAt?: Date) {

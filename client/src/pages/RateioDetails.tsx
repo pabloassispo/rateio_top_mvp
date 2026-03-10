@@ -1,17 +1,23 @@
+import { useState } from "react";
 import { useRoute, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { UserAvatar } from "@/components/UserAvatar";
 import { getUserDisplayName } from "@/lib/userUtils";
-import { ArrowLeft, QrCode } from "lucide-react";
+import { ArrowLeft, QrCode, Send, Loader2, CheckCircle2 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { toast } from "sonner";
 
 export default function RateioDetails() {
   const [, params] = useRoute("/rateio/:id");
   const [, setLocation] = useLocation();
   const rateioId = params?.id;
+  const { user } = useAuth();
+  const [isTransferring, setIsTransferring] = useState(false);
 
+  const utils = trpc.useUtils();
   const { data: rateio, isLoading: rateioLoading } = trpc.rateio.getById.useQuery(
     { id: rateioId! },
     { enabled: !!rateioId, refetchInterval: 5000 }
@@ -22,10 +28,39 @@ export default function RateioDetails() {
     { enabled: !!rateioId, refetchInterval: 5000 }
   );
 
+  const transferMutation = trpc.payment.transferToCreator.useMutation({
+    onSuccess: (data) => {
+      toast.success(`Transferência de R$ ${(data.amount / 100).toFixed(2)} realizada com sucesso!`, {
+        description: `e2eId: ${data.e2eId}`,
+        duration: 5000,
+      });
+      utils.rateio.getById.invalidate({ id: rateioId! });
+      setIsTransferring(false);
+    },
+    onError: (error) => {
+      toast.error("Erro ao solicitar transferência", {
+        description: error.message,
+        duration: 5000,
+      });
+      setIsTransferring(false);
+    },
+  });
+
   const handleContribute = () => {
     if (!rateioId) return;
     // Redirect to participate page to collect pix key and generate QR code
     setLocation(`/rateio/${rateioId}/participate`);
+  };
+
+  const handleTransferToCreator = async () => {
+    if (!rateioId) return;
+    
+    setIsTransferring(true);
+    toast.info("Solicitando transferência...", {
+      description: "Isso pode levar alguns segundos",
+    });
+
+    transferMutation.mutate({ rateioId });
   };
 
   if (rateioLoading) {
@@ -124,6 +159,84 @@ export default function RateioDetails() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Transfer to Creator Section - Only visible when goal is met and user is creator */}
+        {rateio.progress?.isPaid && 
+         user?.id === rateio.creatorId && 
+         rateio.status !== "CONCLUIDO" && (
+          <Card className="mb-6 border-green-500 bg-gradient-to-br from-green-50 to-emerald-50">
+            <CardHeader>
+              <CardTitle className="text-green-900 flex items-center gap-2">
+                <CheckCircle2 className="h-6 w-6 text-green-600" />
+                Meta Atingida! 🎉
+              </CardTitle>
+              <CardDescription className="text-green-800">
+                Parabéns! O rateio atingiu 100% da meta. Você pode solicitar a transferência do valor para sua chave Pix.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="bg-white/60 p-4 rounded-lg border border-green-200">
+                <div className="flex justify-between items-center mb-2">
+                  <span className="text-sm font-medium text-gray-700">Valor Total Arrecadado:</span>
+                  <span className="text-2xl font-bold text-green-600">
+                    R$ {((rateio.progress?.paidAmount || 0) / 100).toFixed(2)}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600">
+                  Este valor será transferido para a sua chave Pix cadastrada
+                </p>
+              </div>
+
+              <Button
+                onClick={handleTransferToCreator}
+                disabled={isTransferring || transferMutation.isPending}
+                className="w-full bg-green-600 hover:bg-green-700 text-white font-semibold py-6 text-lg"
+                size="lg"
+              >
+                {isTransferring || transferMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    Processando Transferência...
+                  </>
+                ) : (
+                  <>
+                    <Send className="mr-2 h-5 w-5" />
+                    Solicitar Transferência
+                  </>
+                )}
+              </Button>
+
+              <p className="text-xs text-center text-muted-foreground">
+                A transferência será processada via Pix e pode levar alguns segundos para ser concluída
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Completed Status - Only visible when rateio is completed */}
+        {rateio.status === "CONCLUIDO" && user?.id === rateio.creatorId && (
+          <Card className="mb-6 border-blue-500 bg-gradient-to-br from-blue-50 to-cyan-50">
+            <CardHeader>
+              <CardTitle className="text-blue-900 flex items-center gap-2">
+                <CheckCircle2 className="h-6 w-6 text-blue-600" />
+                Rateio Concluído
+              </CardTitle>
+              <CardDescription className="text-blue-800">
+                A transferência foi realizada com sucesso! Verifique sua conta.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-white/60 p-4 rounded-lg border border-blue-200">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm font-medium text-gray-700">Valor Transferido:</span>
+                  <span className="text-2xl font-bold text-blue-600">
+                    R$ {((rateio.progress?.paidAmount || 0) / 100).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Contributors List */}
         <Card>

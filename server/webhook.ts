@@ -1,9 +1,7 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
-import axios from "axios";
 import * as db from "./db";
-import { pagarmeService } from "./pagarme";
-import { ENV } from "./_core/env";
+import { efiPayService } from "./efipay";
 
 const webhookRouter = Router();
 
@@ -12,82 +10,90 @@ interface RawBodyRequest extends Request {
 }
 
 /**
- * Webhook endpoint for Pagar.me payment notifications
- * POST /webhook/pagarme
+ * Webhook endpoint for Efí Pay Pix notifications
+ * POST /webhook/efipay
  * 
- * Expected payload:
+ * Efí Pay uses mTLS for authentication, so the webhook endpoint should only
+ * accept connections with valid certificates.
+ * 
+ * Expected payload structure (Pix received):
  * {
- *   "id": "evt_xxxxx",
- *   "type": "charge.paid" | "charge.refunded" | "charge.failed",
- *   "data": {
- *     "id": "ch_xxxxx",
- *     "status": "paid" | "refunded" | "failed",
- *     "amount": 10000,
- *     ...
- *   }
+ *   "pix": [
+ *     {
+ *       "endToEndId": "E00000000202401011234abcdefghij",
+ *       "txid": "abc123def456...",
+ *       "valor": "100.00",
+ *       "horario": "2024-01-01T12:00:00.000Z",
+ *       "chave": "recipient-pix-key",
+ *       "infoPagador": "Rateio: Nome do Rateio"
+ *     }
+ *   ]
  * }
  */
-webhookRouter.post("/pagarme", async (req: Request, res: Response) => {
+webhookRouter.post("/efipay", async (req: Request, res: Response) => {
   try {
     const rawBody = (req as RawBodyRequest).rawBody ?? JSON.stringify(req.body ?? {});
-    const signature =
-      req.header("x-hub-signature") ??
-      req.header("x-hub-signature-256") ??
-      req.header("x-hub-signature-sha256");
 
-    if (!pagarmeService.validateWebhookSignature(rawBody, signature)) {
-      return res.status(401).json({ error: "Invalid webhook signature" });
+    // Validate webhook structure (Efí uses mTLS, so signature validation is different)
+    if (!efiPayService.validateWebhookSignature(rawBody)) {
+      console.warn("[Webhook] Invalid webhook payload structure");
+      return res.status(400).json({ error: "Invalid webhook payload" });
     }
 
-    const { type, data } = req.body;
+    const { pix } = req.body;
 
-    console.log(`[Webhook] Received event: ${type}`, data);
-
-    if (!type || !data) {
-      return res.status(400).json({ error: "Missing type or data" });
+    if (!pix || !Array.isArray(pix) || pix.length === 0) {
+      console.warn("[Webhook] No Pix transactions in webhook");
+      return res.status(400).json({ error: "No Pix transactions found" });
     }
 
-    const chargeId = data.id;
-    if (!chargeId) {
-      return res.status(400).json({ error: "Missing charge ID" });
-    }
+    console.log(`[Webhook] Received ${pix.length} Pix transaction(s)`);
 
-    // Find the payment intent by pagarmeIntentId
-    const intent = await db.getPaymentIntentByChargeId(chargeId);
-    if (!intent) {
-      console.warn(`[Webhook] No intent found for charge ${chargeId}`);
-      return res.status(404).json({ error: "Intent not found" });
-    }
+    // Process each Pix transaction
+    for (const pixTx of pix) {
+      const { txid, endToEndId, valor, horario, chave, infoPagador } = pixTx;
 
-    const participant = await db.getParticipantById(intent.participantId);
-    if (!participant) {
-      console.warn(`[Webhook] No participant found for intent ${intent.participantId}`);
-      return res.status(404).json({ error: "Participant not found" });
-    }
+      console.log(`[Webhook] Processing Pix:`, {
+        txid,
+        endToEndId: endToEndId?.substring(0, 20) + "...",
+        valor,
+      });
 
-    const rateio = await db.getRateioById(participant.rateioId);
-    if (!rateio) {
-      console.warn(`[Webhook] No rateio found for participant ${participant.id}`);
-      return res.status(404).json({ error: "Rateio not found" });
-    }
+      if (!txid) {
+        console.warn("[Webhook] Pix transaction missing txid");
+        continue;
+      }
 
-    // Handle different event types
-    switch (type) {
-      case "charge.paid":
-        await handleChargePaid(intent, participant, rateio, data);
-        break;
+      // Find the payment intent by txid (stored as pagarmeIntentId for backward compatibility)
+      const intent = await db.getPaymentIntentByChargeId(txid);
+      if (!intent) {
+        console.warn(`[Webhook] No intent found for txid ${txid}`);
+        continue;
+      }
 
-      case "charge.refunded":
-        await handleChargeRefunded(intent, participant, rateio, data);
-        break;
+      const participant = await db.getParticipantById(intent.participantId);
+      if (!participant) {
+        console.warn(`[Webhook] No participant found for intent ${intent.participantId}`);
+        continue;
+      }
 
-      case "charge.failed":
-        await handleChargeFailed(intent, participant, rateio, data);
-        break;
+      const rateio = await db.getRateioById(participant.rateioId);
+      if (!rateio) {
+        console.warn(`[Webhook] No rateio found for participant ${participant.id}`);
+        continue;
+      }
 
-      default:
-        console.warn(`[Webhook] Unknown event type: ${type}`);
-        return res.status(400).json({ error: "Unknown event type" });
+      // Convert valor from string to cents (e.g., "100.00" -> 10000)
+      const amountInCents = Math.round(parseFloat(valor) * 100);
+
+      // Handle the payment confirmation
+      await handlePixReceived(intent, participant, rateio, {
+        txid,
+        endToEndId,
+        amount: amountInCents,
+        horario,
+        infoPagador,
+      });
     }
 
     res.status(200).json({ success: true });
@@ -97,26 +103,58 @@ webhookRouter.post("/pagarme", async (req: Request, res: Response) => {
   }
 });
 
-async function handleChargePaid(intent: any, participant: any, rateio: any, data: any) {
-  console.log(`[Webhook] Processing charge.paid for participant ${participant.id}`);
+/**
+ * Legacy webhook endpoint for Pagar.me (backward compatibility)
+ * POST /webhook/pagarme
+ */
+webhookRouter.post("/pagarme", async (req: Request, res: Response) => {
+  console.warn("[Webhook] Received Pagar.me webhook - this endpoint is deprecated");
+  console.log("[Webhook] Payload:", JSON.stringify(req.body, null, 2));
+  
+  // Return success to avoid retries, but log a warning
+  res.status(200).json({ 
+    success: true, 
+    warning: "Pagar.me webhooks are deprecated. Please migrate to Efí Pay." 
+  });
+});
+
+/**
+ * Handle a received Pix payment
+ */
+async function handlePixReceived(
+  intent: any,
+  participant: any,
+  rateio: any,
+  pixData: {
+    txid: string;
+    endToEndId: string;
+    amount: number;
+    horario: string;
+    infoPagador?: string;
+  }
+) {
+  console.log(`[Webhook] Processing Pix received for participant ${participant.id}`);
 
   // Update participant status
-  await db.updateParticipantStatus(participant.id, "PAGO", data.amount);
+  await db.updateParticipantStatus(participant.id, "PAGO", pixData.amount);
 
-  // Create transaction record
+  // Update payment intent status
+  await db.updatePaymentIntentStatus(intent.id, "PAGO");
+
+  // Create transaction record with endToEndId (needed for refunds)
   await db.createTransaction({
     id: uuidv4(),
     participantId: participant.id,
     rateioId: rateio.id,
-    pagarmeTransactionId: data.id,
-    amount: data.amount,
+    pagarmeTransactionId: pixData.endToEndId, // Store e2eId for refunds
+    amount: pixData.amount,
   });
 
   // Update transaction status
   const txs = await db.getTransactionsByRateio(rateio.id);
   const lastTx = txs[txs.length - 1];
   if (lastTx) {
-    await db.updateTransactionStatus(lastTx.id, "PAGO", new Date());
+    await db.updateTransactionStatus(lastTx.id, "PAGO", new Date(pixData.horario));
   }
 
   // Create event
@@ -125,74 +163,32 @@ async function handleChargePaid(intent: any, participant: any, rateio: any, data
     rateioId: rateio.id,
     participantId: participant.id,
     eventType: "PAGAMENTO_CONFIRMADO",
-    message: `Pagamento de R$ ${(data.amount / 100).toFixed(2)} confirmado`,
+    message: `Pagamento de R$ ${(pixData.amount / 100).toFixed(2)} confirmado`,
   });
 
   // Check if rateio is complete
   const progress = await db.calculateRateioProgress(rateio.id);
   if (progress && progress.isPaid) {
     console.log(`[Webhook] Rateio ${rateio.id} reached 100%`);
-    await db.updateRateioStatus(rateio.id, "CONCLUIDO");
+    
+    // Create completion event (but don't automatically transfer yet)
     await db.createRateioEvent({
       id: uuidv4(),
       rateioId: rateio.id,
       eventType: "CONCLUIDO",
-      message: "Rateio concluído! Liquidação automática iniciada.",
+      message: "Meta atingida! O criador pode solicitar a transferência.",
     });
 
-    // TODO: Process automatic refunds if needed
-    // TODO: Send notifications to participants
+    // TODO: Optionally trigger automatic transfer to creator
+    // await autoTransferToCreator(rateio);
   }
-}
-
-async function handleChargeRefunded(intent: any, participant: any, rateio: any, data: any) {
-  console.log(`[Webhook] Processing charge.refunded for participant ${participant.id}`);
-
-  // Update participant status
-  await db.updateParticipantStatus(participant.id, "REEMBOLSADO");
-
-  // Update transaction status
-  const txs = await db.getTransactionsByRateio(rateio.id);
-  const participantTx = txs.find(tx => tx.participantId === participant.id);
-  if (participantTx) {
-    await db.updateTransactionStatus(participantTx.id, "REEMBOLSADO", new Date());
-  }
-
-  // Create event
-  await db.createRateioEvent({
-    id: uuidv4(),
-    rateioId: rateio.id,
-    participantId: participant.id,
-    eventType: "REEMBOLSO_SOLICITADO",
-    message: `Reembolso de R$ ${(data.amount / 100).toFixed(2)} processado`,
-  });
-}
-
-async function handleChargeFailed(intent: any, participant: any, rateio: any, data: any) {
-  console.log(`[Webhook] Processing charge.failed for participant ${participant.id}`);
-
-  // Update transaction status
-  const txs = await db.getTransactionsByRateio(rateio.id);
-  const participantTx = txs.find(tx => tx.participantId === participant.id);
-  if (participantTx) {
-    await db.updateTransactionStatus(participantTx.id, "FALHOU");
-  }
-
-  // Create event
-  await db.createRateioEvent({
-    id: uuidv4(),
-    rateioId: rateio.id,
-    participantId: participant.id,
-    eventType: "PAGAMENTO_CONFIRMADO", // Still log as attempt
-    message: `Pagamento falhou. Tente novamente.`,
-  });
 }
 
 /**
- * Helper endpoint to find charge ID from participant ID
- * GET /webhook/pagarme/find-charge/:participantId
+ * Helper endpoint to find txid from participant ID
+ * GET /webhook/efipay/find-charge/:participantId
  */
-webhookRouter.get("/pagarme/find-charge/:participantId", async (req: Request, res: Response) => {
+webhookRouter.get("/efipay/find-charge/:participantId", async (req: Request, res: Response) => {
   try {
     const { participantId } = req.params;
     
@@ -208,7 +204,7 @@ webhookRouter.get("/pagarme/find-charge/:participantId", async (req: Request, re
 
     res.status(200).json({
       participantId,
-      chargeId: intent.pagarmeIntentId,
+      txid: intent.pagarmeIntentId, // This now stores the Efí txid
       participantStatus: participant.status,
       paidAmount: participant.paidAmount,
       intentStatus: intent.status,
@@ -221,156 +217,215 @@ webhookRouter.get("/pagarme/find-charge/:participantId", async (req: Request, re
 });
 
 /**
- * Test endpoint to simulate payment webhook (development only)
- * POST /webhook/pagarme/test
+ * Test endpoint to simulate Efí payment webhook (development only)
+ * POST /webhook/efipay/test
  * 
- * This endpoint bypasses signature validation and allows simulating payments
+ * This endpoint bypasses mTLS validation and allows simulating payments
  * for testing purposes.
  * 
- * Payload options:
- * 1. Using chargeId (preferred):
- *    { "chargeId": "ch_xxxxx", "amount": 300, "type": "charge.paid" }
+ * Payload:
+ * { "participantId": "uuid-here" } // RECOMMENDED: uses participant's contribution amount automatically
+ * or
+ * { "participantId": "uuid-here", "amount": 1000 } // amount in CENTS (1000 = R$ 10.00)
+ * or
+ * { "txid": "abc123..." } // Uses rateio's total amount
  * 
- * 2. Using participantId (will find charge ID automatically):
- *    { "participantId": "uuid-here", "amount": 300, "type": "charge.paid" }
- * 
- * 3. Using transactionId (will search Pagar.me API):
- *    { "transactionId": "tran_xxxxx", "amount": 300, "type": "charge.paid" }
+ * NOTE: If "amount" is NOT provided, the system automatically uses:
+ * 1. Payment intent's charge amount (most accurate - stored when QR Code was generated)
+ * 2. Rateio's total amount (fallback)
  */
-webhookRouter.post("/pagarme/test", async (req: Request, res: Response) => {
+webhookRouter.post("/efipay/test", async (req: Request, res: Response) => {
   try {
-    const { chargeId, transactionId, participantId, amount, type = "charge.paid" } = req.body;
+    const { txid, participantId, amount } = req.body;
 
-    let finalChargeId = chargeId;
+    let finalTxid = txid;
 
-    // If participantId is provided, find the charge ID from payment intent
-    if (!finalChargeId && participantId) {
-      try {
-        console.log(`[Webhook Test] Participant ID provided: ${participantId}, searching for charge...`);
-        const intent = await db.getPaymentIntentByParticipant(participantId);
-        if (intent) {
-          finalChargeId = intent.pagarmeIntentId;
-          console.log(`[Webhook Test] Found charge ID from participant: ${finalChargeId}`);
-        } else {
-          return res.status(404).json({ 
-            error: "No payment intent found for this participant",
-            hint: "Make sure the participant has created a payment intent first"
-          });
-        }
-      } catch (error: any) {
-        console.error(`[Webhook Test] Error finding charge from participant:`, error);
-        return res.status(400).json({ 
-          error: `Failed to find charge from participant: ${error.message}`
+    // If participantId is provided, find the txid from payment intent
+    if (!finalTxid && participantId) {
+      const intent = await db.getPaymentIntentByParticipant(participantId);
+      if (intent) {
+        finalTxid = intent.pagarmeIntentId;
+        console.log(`[Webhook Test] Found txid from participant: ${finalTxid}`);
+      } else {
+        return res.status(404).json({ 
+          error: "No payment intent found for this participant",
+          hint: "Make sure the participant has created a payment intent first"
         });
       }
     }
 
-    // If transactionId is provided but chargeId is not, try to find charge ID by searching charges
-    if (!finalChargeId && transactionId) {
-      try {
-        console.log(`[Webhook Test] Transaction ID provided: ${transactionId}, searching for charge...`);
-        
-        // Search for charge that contains this transaction
-        // We'll search recent charges (last 50) to find the one with this transaction
-        const authHeader = `Basic ${Buffer.from(`${ENV.pagarmeApiKey}:`).toString("base64")}`;
-        
-        const chargesResponse = await axios.get("https://api.pagar.me/core/v5/charges", {
-          headers: {
-            Authorization: authHeader,
-            "Content-Type": "application/json",
-          },
-          params: { size: 50, page: 1 }
-        });
-        
-        const charge = chargesResponse.data.data?.find((ch: any) => 
-          ch.last_transaction?.id === transactionId
-        );
-        
-        if (charge) {
-          finalChargeId = charge.id;
-          console.log(`[Webhook Test] Found charge ID: ${finalChargeId}`);
-        } else {
-          return res.status(400).json({ 
-            error: "Could not find charge ID from transaction. Please provide chargeId directly.",
-            hint: "The charge ID starts with 'ch_' and is returned when creating the payment intent. You can also find it in the Pagar.me dashboard."
-          });
-        }
-      } catch (error: any) {
-        console.error(`[Webhook Test] Error searching for charge:`, error);
-        return res.status(400).json({ 
-          error: `Failed to find charge from transaction: ${error.message}`,
-          hint: "Please provide chargeId directly (starts with 'ch_'). You can find it in the Pagar.me dashboard or in the payment intent response."
-        });
-      }
+    if (!finalTxid) {
+      return res.status(400).json({ error: "Missing txid or participantId" });
     }
 
-    if (!finalChargeId) {
-      return res.status(400).json({ error: "Missing chargeId or transactionId" });
-    }
+    console.log(`[Webhook Test] Simulating Pix payment for txid ${finalTxid}`);
 
-    console.log(`[Webhook Test] Simulating ${type} for charge ${finalChargeId}`);
-
-    // Find the payment intent by pagarmeIntentId
-    const intent = await db.getPaymentIntentByChargeId(finalChargeId);
+    // Find the payment intent
+    const intent = await db.getPaymentIntentByChargeId(finalTxid);
     if (!intent) {
-      console.warn(`[Webhook Test] No intent found for charge ${finalChargeId}`);
       return res.status(404).json({ 
-        error: "Intent not found. Make sure the charge ID is correct.",
-        hint: "The charge ID should be the 'id' field returned when creating the payment intent (starts with 'ch_')"
+        error: "Intent not found. Make sure the txid is correct.",
+        hint: "The txid is returned when creating the payment intent"
       });
     }
 
     const participant = await db.getParticipantById(intent.participantId);
     if (!participant) {
-      console.warn(`[Webhook Test] No participant found for intent ${intent.participantId}`);
       return res.status(404).json({ error: "Participant not found" });
     }
 
     const rateio = await db.getRateioById(participant.rateioId);
     if (!rateio) {
-      console.warn(`[Webhook Test] No rateio found for participant ${participant.id}`);
       return res.status(404).json({ error: "Rateio not found" });
     }
 
-    // Use provided amount or get from charge
-    const finalAmount = amount || rateio.totalAmount;
-
-    // Simulate webhook data
-    const webhookData = {
-      id: finalChargeId,
-      status: type === "charge.paid" ? "paid" : type === "charge.refunded" ? "refunded" : "failed",
-      amount: finalAmount,
-    };
-
-    // Handle different event types
-    switch (type) {
-      case "charge.paid":
-        await handleChargePaid(intent, participant, rateio, webhookData);
-        break;
-
-      case "charge.refunded":
-        await handleChargeRefunded(intent, participant, rateio, webhookData);
-        break;
-
-      case "charge.failed":
-        await handleChargeFailed(intent, participant, rateio, webhookData);
-        break;
-
-      default:
-        return res.status(400).json({ error: "Unknown event type. Use: charge.paid, charge.refunded, or charge.failed" });
+    // Determine the correct amount to use:
+    // 1. If amount is provided in the request, use it (must be in cents)
+    // 2. Otherwise, get from the payment intent (the actual charge amount)
+    // 3. Finally, fallback to rateio's totalAmount
+    let finalAmount: number;
+    
+    if (amount) {
+      // Amount explicitly provided (in cents)
+      finalAmount = amount;
+      console.log(`[Webhook Test] Using provided amount: R$ ${(finalAmount / 100).toFixed(2)}`);
+    } else if (intent.amount && intent.amount > 0) {
+      // Use payment intent's charge amount (most accurate)
+      finalAmount = intent.amount;
+      console.log(`[Webhook Test] Using payment intent amount: R$ ${(finalAmount / 100).toFixed(2)}`);
+    } else {
+      // Fallback to rateio's total amount
+      finalAmount = rateio.totalAmount;
+      console.log(`[Webhook Test] Using rateio's total amount: R$ ${(finalAmount / 100).toFixed(2)}`);
     }
+
+    // Generate a fake e2eId for testing
+    const fakeE2eId = `E${Date.now()}${Math.random().toString(36).substring(2, 15)}`;
+
+    // Process the payment
+    await handlePixReceived(intent, participant, rateio, {
+      txid: finalTxid,
+      endToEndId: fakeE2eId,
+      amount: finalAmount,
+      horario: new Date().toISOString(),
+      infoPagador: `Rateio: ${rateio.name}`,
+    });
 
     res.status(200).json({ 
       success: true,
-      message: `Successfully simulated ${type} for charge ${chargeId}`,
+      message: `Successfully simulated Pix payment for txid ${finalTxid}`,
       participantId: participant.id,
       rateioId: rateio.id,
       amount: finalAmount,
+      e2eId: fakeE2eId,
     });
   } catch (error: any) {
     console.error("[Webhook Test] Error simulating webhook:", error);
     res.status(500).json({ error: "Internal server error", details: error.message });
   }
+});
+
+/**
+ * Test endpoint to pay a QR Code via API (simulates homologation environment)
+ * POST /webhook/efipay/pay-qrcode
+ * 
+ * Body:
+ * {
+ *   "participantId": "uuid-here",
+ *   "payerPixKey": "[email protected]" // Optional, defaults to test key
+ * }
+ */
+webhookRouter.post("/efipay/pay-qrcode", async (req: Request, res: Response) => {
+  try {
+    const { participantId, payerPixKey = "[email protected]" } = req.body;
+
+    if (!participantId) {
+      return res.status(400).json({ error: "Missing participantId" });
+    }
+
+    // Find the payment intent
+    const intent = await db.getPaymentIntentByParticipant(participantId);
+    if (!intent) {
+      return res.status(404).json({ 
+        error: "No payment intent found for this participant",
+        hint: "Make sure the participant has created a payment intent first"
+      });
+    }
+
+    const participant = await db.getParticipantById(participantId);
+    if (!participant) {
+      return res.status(404).json({ error: "Participant not found" });
+    }
+
+    const rateio = await db.getRateioById(participant.rateioId);
+    if (!rateio) {
+      return res.status(404).json({ error: "Rateio not found" });
+    }
+
+    // Get the QR Code from the payment intent
+    if (!intent.copyPaste) {
+      return res.status(400).json({ 
+        error: "No QR Code found for this payment intent",
+        hint: "The QR Code (pixCopiaECola) is missing"
+      });
+    }
+
+    console.log(`[Webhook Test] Paying QR Code for participant ${participantId} using API`);
+
+    // Pay the QR Code via Efí API
+    const paymentResponse = await efiPayService.payPixQRCode(
+      intent.copyPaste,
+      payerPixKey,
+      `Rateio: ${rateio.name}`
+    );
+
+    console.log(`[Webhook Test] ✅ Payment sent via API:`, paymentResponse.e2eId);
+
+    // The actual payment confirmation will arrive via webhook
+    // For testing, we can simulate it immediately
+    if (paymentResponse.status === "EM_PROCESSAMENTO") {
+      // Simulate webhook arrival after a short delay
+      setTimeout(async () => {
+        await handlePixReceived(intent, participant, rateio, {
+          txid: intent.pagarmeIntentId,
+          endToEndId: paymentResponse.e2eId,
+          amount: rateio.totalAmount,
+          horario: new Date().toISOString(),
+          infoPagador: `Rateio: ${rateio.name}`,
+        });
+        console.log(`[Webhook Test] ✅ Simulated webhook received for e2eId ${paymentResponse.e2eId}`);
+      }, 2000); // 2 second delay to simulate real webhook
+    }
+
+    res.status(200).json({ 
+      success: true,
+      message: "QR Code payment sent successfully. Webhook will arrive shortly.",
+      payment: paymentResponse,
+      participantId: participant.id,
+      rateioId: rateio.id,
+      hint: "In production, the webhook will notify you when the payment is confirmed"
+    });
+  } catch (error: any) {
+    console.error("[Webhook Test] Error paying QR Code:", error);
+    res.status(500).json({ 
+      error: "Internal server error", 
+      details: error.message,
+      hint: "Make sure EFI_PIX_KEY has a webhook configured and the pix.send scope is enabled"
+    });
+  }
+});
+
+// Legacy endpoints for backward compatibility
+webhookRouter.get("/pagarme/find-charge/:participantId", async (req: Request, res: Response) => {
+  // Redirect to new endpoint
+  res.redirect(`/api/webhook/efipay/find-charge/${req.params.participantId}`);
+});
+
+webhookRouter.post("/pagarme/test", async (req: Request, res: Response) => {
+  console.warn("[Webhook] Using deprecated /pagarme/test endpoint. Please use /efipay/test");
+  // Forward to new endpoint
+  req.url = "/efipay/test";
+  webhookRouter.handle(req, res, () => {});
 });
 
 export default webhookRouter;

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { v4 as uuidv4 } from "uuid";
 import * as db from "./db";
 import { TRPCError } from "@trpc/server";
-import { pagarmeService } from "./pagarme";
+import { efiPayService } from "./efipay";
 import { hashPassword, verifyPassword } from "./_core/password";
 import { sdk } from "./_core/sdk";
 
@@ -296,83 +296,31 @@ const paymentRouter = router({
       }
 
       try {
-        // Create Pix charge via Pagar.me
-        // Pagar.me requires customer data - get from user if participant has userId
-        let customerData: {
-          name: string;
-          email: string;
-          document?: string;
-          document_type?: string;
-          phones?: {
-            mobile_phone?: {
-              country_code: string;
-              area_code: string;
-              number: string;
-            };
-          };
-        } = {
-          name: "Participante Rateio",
-          email: "participante@rateio.top",
-        };
-
-        // If participant has userId, get user data
-        if (participant.userId) {
-          const user = await db.getUserById(participant.userId);
-          if (user) {
-            customerData.name = user.name || customerData.name;
-            customerData.email = user.email || customerData.email;
-            
-            // Use CPF if available
-            if (user.cpf) {
-              customerData.document = user.cpf;
-              customerData.document_type = "CPF";
-            }
-            
-            // Format phone number for Pagar.me (contato format: 10 or 11 digits, e.g., "11987654321")
-            if (user.contato && (user.contato.length === 10 || user.contato.length === 11)) {
-              const phone = user.contato;
-              // Extract area code (first 2 digits) and number (rest)
-              const areaCode = phone.substring(0, 2);
-              const number = phone.substring(2);
-              
-              customerData.phones = {
-                mobile_phone: {
-                  country_code: "55", // Brazil
-                  area_code: areaCode,
-                  number: number,
-                },
-              };
-            }
-          }
-        }
-        
-        // Fallback: use participant's PIX key as email if it's an EMAIL type
-        if (participant.pixKeyType === "EMAIL" && !customerData.email.includes("@")) {
-          customerData.email = participant.pixKey;
-        }
-        
-        const charge = await pagarmeService.createPixCharge(
+        // Create Pix charge via Efí Pay
+        const charge = await efiPayService.createPixCharge(
           chargeAmount,
-          `Rateio: ${rateio.name}`,
-          customerData
+          `Rateio: ${rateio.name}`
         );
 
         const paymentIntentId = uuidv4();
-        const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+        const expiresAt = charge.expiresAt 
+          ? new Date(charge.expiresAt) 
+          : new Date(Date.now() + 15 * 60 * 1000); // 15 minutes default
 
         await db.createPaymentIntent({
           id: paymentIntentId,
           participantId: input.participantId,
-          pagarmeIntentId: charge.id,
-          qrCode: charge.pix_qr_code,
-          copyPaste: charge.pix_copy_and_paste,
+          pagarmeIntentId: charge.txid, // Using txid as the intent identifier
+          amount: chargeAmount, // Store the actual charge amount
+          qrCode: charge.qrCode, // Base64 image or URL
+          copyPaste: charge.pixCopiaECola,
           expiresAt,
         });
 
         return {
           id: paymentIntentId,
-          qrCode: charge.pix_qr_code,
-          copyPaste: charge.pix_copy_and_paste,
+          qrCode: charge.qrCode,
+          copyPaste: charge.pixCopiaECola,
           expiresAt,
         };
       } catch (error: any) {
@@ -398,8 +346,8 @@ const paymentRouter = router({
       }
 
       try {
-        // Check status with Pagar.me
-        const charge = await pagarmeService.getChargeStatus(intent.pagarmeIntentId);
+        // Check status with Efí Pay
+        const charge = await efiPayService.getChargeStatus(intent.pagarmeIntentId);
 
         return {
           status: participant.status,
@@ -424,6 +372,7 @@ const paymentRouter = router({
     .input(
       z.object({
         participantId: z.string().uuid(),
+        e2eId: z.string().optional(), // End-to-end ID of the received Pix
         amount: z.number().int().optional(),
       })
     )
@@ -433,16 +382,23 @@ const paymentRouter = router({
         throw new TRPCError({ code: "NOT_FOUND" });
       }
 
-      const intent = await db.getPaymentIntentByParticipant(input.participantId);
-      if (!intent) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "No payment intent found" });
+      // For Efí Pay, we need the e2eId of the received Pix to process a refund
+      // This should be stored when we receive the payment webhook
+      const transaction = await db.getTransactionByParticipant(input.participantId);
+      if (!transaction) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "No transaction found for refund" });
+      }
+
+      const e2eId = input.e2eId || transaction.pagarmeTransactionId;
+      if (!e2eId) {
+        throw new TRPCError({ 
+          code: "BAD_REQUEST", 
+          message: "E2E ID is required for refund. Payment may not have been received yet." 
+        });
       }
 
       try {
-        const refund = await pagarmeService.refundCharge(
-          intent.pagarmeIntentId,
-          input.amount
-        );
+        const refund = await efiPayService.refundPix(e2eId, input.amount);
 
         await db.updateParticipantStatus(input.participantId, "REEMBOLSADO");
 
@@ -452,6 +408,76 @@ const paymentRouter = router({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: error.message || "Falha ao processar reembolso",
+        });
+      }
+    }),
+
+  // New: Transfer to rateio creator when rateio is complete
+  transferToCreator: protectedProcedure
+    .input(
+      z.object({
+        rateioId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const rateio = await db.getRateioById(input.rateioId);
+      if (!rateio) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      // Only the creator can trigger this
+      if (rateio.creatorId !== ctx.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN" });
+      }
+
+      // Get creator's Pix key
+      const creatorPixKey = await db.getPixKeyByUserId(rateio.creatorId);
+      if (!creatorPixKey) {
+        throw new TRPCError({ 
+          code: "BAD_REQUEST", 
+          message: "Você precisa cadastrar uma chave Pix para receber o valor" 
+        });
+      }
+
+      // Calculate total amount to transfer
+      const progress = await db.calculateRateioProgress(input.rateioId);
+      if (!progress || progress.paidAmount <= 0) {
+        throw new TRPCError({ 
+          code: "BAD_REQUEST", 
+          message: "Nenhum valor disponível para transferência" 
+        });
+      }
+
+      try {
+        // Send Pix to creator
+        const transfer = await efiPayService.sendPix(
+          creatorPixKey.pixKey,
+          progress.paidAmount,
+          `Rateio: ${rateio.name}`
+        );
+
+        // Update rateio status
+        await db.updateRateioStatus(input.rateioId, "CONCLUIDO");
+
+        // Create event
+        await db.createRateioEvent({
+          id: uuidv4(),
+          rateioId: input.rateioId,
+          eventType: "CONCLUIDO",
+          message: `Transferência de R$ ${(progress.paidAmount / 100).toFixed(2)} realizada para o criador`,
+        });
+
+        return { 
+          success: true, 
+          transferId: transfer.idEnvio,
+          e2eId: transfer.e2eId,
+          amount: progress.paidAmount 
+        };
+      } catch (error: any) {
+        console.error("[Payment] Error transferring to creator:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: error.message || "Falha ao transferir para o criador",
         });
       }
     }),

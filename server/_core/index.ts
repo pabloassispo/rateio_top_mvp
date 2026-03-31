@@ -77,14 +77,6 @@ async function startServer() {
   server.listen(port, () => {
     const localWebhookUrl = `http://localhost:${port}/api/webhook/pagarme`;
     console.log(`Server running on http://localhost:${port}/`);
-    if (ENV.pagarmeWebhookUrl) {
-      console.log(`Webhook endpoint: ${ENV.pagarmeWebhookUrl}`);
-    } else {
-      console.log(`Webhook endpoint: ${localWebhookUrl}`);
-      console.log(
-        "Set PAGARME_WEBHOOK_URL in your .env to point to your public (e.g. ngrok) callback."
-      );
-    }
   });
 }
 

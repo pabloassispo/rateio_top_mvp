@@ -317,6 +317,13 @@ const paymentRouter = router({
           expiresAt,
         });
 
+        console.log("[Payment] QR Code generated for participant:", {
+          participantId: input.participantId,
+          paymentIntentId,
+          txid: charge.txid,
+          amount: chargeAmount,
+        });
+
         return {
           id: paymentIntentId,
           qrCode: charge.qrCode,

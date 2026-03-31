@@ -101,10 +101,14 @@ Você tem duas opções principais:
    PORT=3000
    DATABASE_URL=mysql://user:password@localhost:3306/rateio_top_mvp
    JWT_SECRET=your-secret-key-here
-   PAGARME_API_KEY=sk_test_...
-   PAGARME_ACCOUNT_ID=your-account-id
-   PAGARME_WEBHOOK_SECRET=your-webhook-secret
-   PAGARME_WEBHOOK_URL=https://yourdomain.com/api/webhook/pagarme
+   
+   # Efí Pay (antigo Gerencianet)
+   # IMPORTANTE: Use apenas os valores, SEM os prefixos Client_Id_ ou Client_Secret_
+   EFI_CLIENT_ID=xxxxxxxx
+   EFI_CLIENT_SECRET=xxxxxxxx
+   EFI_CERTIFICATE_PATH=/path/to/certificate.p12
+   EFI_SANDBOX=false
+   EFI_PIX_KEY=your-pix-key-for-receiving
    ```
 
 5. **Build e iniciar:**
@@ -274,11 +278,14 @@ DATABASE_URL=mysql://user:password@host:3306/database
 JWT_SECRET=your-very-secure-secret-key-here
 VITE_APP_ID=your-app-id
 
-# Pagar.me
-PAGARME_API_KEY=sk_prod_...  # Use produção em produção!
-PAGARME_ACCOUNT_ID=your-account-id
-PAGARME_WEBHOOK_SECRET=your-webhook-secret
-PAGARME_WEBHOOK_URL=https://yourdomain.com/api/webhook/pagarme
+# Efí Pay (antigo Gerencianet) - https://dev.efipay.com.br/docs/api-pix/credenciais/
+# IMPORTANTE: Use apenas os valores, SEM os prefixos Client_Id_ ou Client_Secret_
+EFI_CLIENT_ID=xxxxxxxx  # SEM o prefixo "Client_Id_"
+EFI_CLIENT_SECRET=xxxxxxxx  # SEM o prefixo "Client_Secret_"
+EFI_CERTIFICATE_PATH=/path/to/certificate.p12  # Caminho absoluto no servidor
+EFI_CERTIFICATE_PASSPHRASE=  # (opcional) senha do .p12, se existir
+EFI_SANDBOX=false  # true para homologação, false para produção
+EFI_PIX_KEY=your-pix-key-for-receiving  # Chave Pix da sua conta Efí
 
 # OAuth (se usar)
 OAUTH_SERVER_URL=https://oauth-server-url
@@ -312,27 +319,30 @@ pnpm db:push
 - **Cloudflare** (gratuito) como proxy
 - **Railway/Render** já incluem SSL automático
 
-### 5. Webhook Pagar.me
+### 5. Webhook Efí Pay
 
-Configure o webhook no dashboard Pagar.me:
-- URL: `https://yourdomain.com/api/webhook/pagarme`
-- Eventos: `charge.paid`, `charge.refunded`, `charge.failed`
+Configure o webhook no dashboard Efí Pay:
+- URL: `https://yourdomain.com/api/webhook/efipay`
+- O webhook usa mTLS (certificado) para autenticação
+- Documentação: https://dev.efipay.com.br/docs/api-pix/webhooks
 
 ---
 
 ## 📝 Checklist de Deploy
 
 - [ ] Build executado com sucesso (`pnpm build`)
-- [ ] Variáveis de ambiente configuradas
+- [ ] Variáveis de ambiente configuradas (incluindo Efí Pay)
+- [ ] Certificado .p12 da Efí Pay disponível no servidor
 - [ ] Banco de dados criado e migrações executadas
 - [ ] SSL/HTTPS configurado
 - [ ] Domínio apontando para servidor
-- [ ] Webhook Pagar.me configurado
+- [ ] Webhook Efí Pay configurado
 - [ ] Testes básicos funcionando:
   - [ ] Criar rateio
   - [ ] Participar de rateio
   - [ ] Gerar QR Code Pix
-  - [ ] Ver status do rateio
+  - [ ] Receber pagamento Pix
+  - [ ] Transferir para criador do rateio
 
 ---
 
@@ -352,8 +362,9 @@ Configure o webhook no dashboard Pagar.me:
 - Se domínios diferentes, configure `domain` corretamente
 
 ### Webhook não funciona
-- Verifique URL do webhook no Pagar.me
+- Verifique URL do webhook no Efí Pay
 - Verifique se o servidor está acessível publicamente
+- Verifique se o certificado está configurado corretamente para mTLS
 - Verifique logs do servidor para erros
 
 ---
@@ -368,5 +379,7 @@ Para começar rápido, recomendo **Railway.app** ou **Render.com** para deploy c
 - ✅ Domínio customizado fácil
 
 Depois, se precisar de mais controle, migre para VPS próprio.
+
+
 
 

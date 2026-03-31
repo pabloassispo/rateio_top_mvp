@@ -6,76 +6,56 @@
 @apiUrl = {{baseUrl}}/api
 
 ### Variables (update these with your actual values)
-@chargeId = ch_xxxxx
-@transactionId = tran_A17rDE1ubDUBdR0Q
+@txid = abc123def456...
 @rateioId = c8de05ad-e01e-4205-ab9c-589aa0f647c8
-@participantId = 3e5c99d4-db98-4376-a3ca-def199ab21b5
+@participantId = aa8532c9-3782-4de9-8466-2e3fcf7df19c
 
 ###############################################
-# WEBHOOK TEST ENDPOINTS
+# EFÍ PAY WEBHOOK TEST ENDPOINTS
 ###############################################
 
-### Find Charge ID from Participant ID
-GET {{apiUrl}}/webhook/pagarme/find-charge/{{participantId}}
+### Find txid from Participant ID
+GET {{apiUrl}}/webhook/efipay/find-charge/{{participantId}}
 
-### Simulate Payment - Using Charge ID
-POST {{apiUrl}}/webhook/pagarme/test
+### Simulate Payment - Manual (Webhook Simulation)
+### Use this for quick local testing without calling Efí API
+### NOTE: "amount" is OPTIONAL and in CENTS (e.g., 1000 = R$ 10.00)
+### If not provided, uses the participant's contribution amount
+POST {{apiUrl}}/webhook/efipay/test
 Content-Type: application/json
 
 {
-  "chargeId": "{{chargeId}}",
-  "amount": 300,
-  "type": "charge.paid"
+  "participantId": "{{participantId}}"
 }
 
-### Simulate Payment - Using Participant ID (Easiest!)
-POST {{apiUrl}}/webhook/pagarme/test
+### Simulate Payment with Custom Amount (in cents)
+POST {{apiUrl}}/webhook/efipay/test
 Content-Type: application/json
 
 {
   "participantId": "{{participantId}}",
-  "amount": 300,
-  "type": "charge.paid"
+  "amount": 1000
 }
 
-### Simulate Payment - Using Transaction ID
-POST {{apiUrl}}/webhook/pagarme/test
+### Pay QR Code via API - Official (Homologation Test)
+### This calls the real Efí Pay API to pay the QR Code
+### Requires: pix.send and gn.qrcodes.pay scopes enabled
+### Homologation key: [email protected]
+POST {{apiUrl}}/webhook/efipay/pay-qrcode
 Content-Type: application/json
 
 {
-  "transactionId": "{{transactionId}}",
-  "amount": 300,
-  "type": "charge.paid"
+  "participantId": "{{participantId}}",
+  "payerPixKey": "[email protected]"
 }
 
-### Simulate Payment - Using Transaction ID (Example)
-POST {{apiUrl}}/webhook/pagarme/test
+### Simulate Payment - Using txid (legacy)
+POST {{apiUrl}}/webhook/efipay/test
 Content-Type: application/json
 
 {
-  "transactionId": "tran_923EpaaFxBHzLOxp",
-  "amount": 300,
-  "type": "charge.paid"
-}
-
-### Simulate Refund
-POST {{apiUrl}}/webhook/pagarme/test
-Content-Type: application/json
-
-{
-  "chargeId": "{{chargeId}}",
-  "amount": 300,
-  "type": "charge.refunded"
-}
-
-### Simulate Failed Payment
-POST {{apiUrl}}/webhook/pagarme/test
-Content-Type: application/json
-
-{
-  "chargeId": "{{chargeId}}",
-  "amount": 300,
-  "type": "charge.failed"
+  "txid": "{{txid}}",
+  "amount": 300
 }
 
 ###############################################
@@ -120,7 +100,11 @@ Content-Type: application/json
   }
 }
 
-### Create Payment Intent
+###############################################
+# PAYMENT ENDPOINTS (tRPC)
+###############################################
+
+### Create Payment Intent (Gerar QR Code Pix)
 POST {{baseUrl}}/trpc/payment.createIntent
 Content-Type: application/json
 
@@ -141,19 +125,16 @@ Content-Type: application/json
   }
 }
 
-###############################################
-# PAGAR.ME API ENDPOINTS (Direct)
-###############################################
-
-### Get Charge Status (requires Pagar.me credentials)
-GET https://api.pagar.me/core/v5/charges/{{chargeId}}
-Authorization: Basic {{$dotenv PAGARME_API_KEY}}
+### Transfer to Creator (Enviar Pix para o criador)
+### Requires authentication (session cookie)
+POST {{baseUrl}}/trpc/payment.transferToCreator
 Content-Type: application/json
 
-### List Recent Charges
-GET https://api.pagar.me/core/v5/charges?size=50&page=1
-Authorization: Basic {{$dotenv PAGARME_API_KEY}}
-Content-Type: application/json
+{
+  "json": {
+    "rateioId": "{{rateioId}}"
+  }
+}
 
 ###############################################
 # NOTES
@@ -164,9 +145,19 @@ Content-Type: application/json
 ### 2. Update variables at the top with your actual values
 ### 3. Click "Send Request" above any request to execute it
 ### 
-### For Pagar.me endpoints, set PAGARME_API_KEY in your .env file
-### Format: PAGARME_API_KEY=your_api_key_here
+### For Efí Pay, configure these environment variables:
+### - EFI_CLIENT_ID=your_client_id
+### - EFI_CLIENT_SECRET=your_client_secret
+### - EFI_CERTIFICATE_PATH=./path/to/certificate.p12
+### - EFI_SANDBOX=true (use false for production)
+### - EFI_PIX_KEY=your_pix_key
 ###
-### The webhook test endpoint bypasses signature validation
+### The webhook test endpoint bypasses mTLS validation
 ### and allows simulating payments for testing purposes.
+###
+### Key differences from Pagar.me:
+### - Uses txid instead of chargeId
+### - Requires mTLS certificate for API calls
+### - Uses OAuth2 token-based authentication
+### - Can send Pix directly to any Pix key (transferToCreator)
 

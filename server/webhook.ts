@@ -34,20 +34,30 @@ webhookRouter.post("/efipay", async (req: Request, res: Response) => {
   try {
     const rawBody = (req as RawBodyRequest).rawBody ?? JSON.stringify(req.body ?? {});
 
-    // Validate webhook structure (Efí uses mTLS, so signature validation is different)
-    if (!efiPayService.validateWebhookSignature(rawBody)) {
-      console.warn("[Webhook] Invalid webhook payload structure");
-      return res.status(400).json({ error: "Invalid webhook payload" });
+    console.log("[Webhook] Received request");
+    console.log("[Webhook] Headers:", {
+      "content-type": req.headers["content-type"],
+      "x-client-verify": req.headers["x-client-verify"],
+      "user-agent": req.headers["user-agent"],
+    });
+    console.log("[Webhook] Raw body:", rawBody.substring(0, 500));
+
+    const body = req.body ?? {};
+    const { pix } = body;
+
+    // Efí sends a validation request during webhook setup with an empty or
+    // minimal body. We must return 200 to confirm the endpoint is reachable.
+    if (!pix) {
+      console.log("[Webhook] Validation/ping request received (no pix payload) — responding 200");
+      return res.status(200).json({ success: true });
     }
 
-    const { pix } = req.body;
-
-    if (!pix || !Array.isArray(pix) || pix.length === 0) {
-      console.warn("[Webhook] No Pix transactions in webhook");
-      return res.status(400).json({ error: "No Pix transactions found" });
+    if (!Array.isArray(pix) || pix.length === 0) {
+      console.warn("[Webhook] pix field present but empty or not an array");
+      return res.status(200).json({ success: true, ignored: true });
     }
 
-    console.log(`[Webhook] Received ${pix.length} Pix transaction(s)`);
+    console.log(`[Webhook] Processing ${pix.length} Pix transaction(s):`, JSON.stringify(pix).substring(0, 300));
 
     // Process each Pix transaction
     for (const pixTx of pix) {
